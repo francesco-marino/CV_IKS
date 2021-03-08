@@ -1,0 +1,13 @@
+# Configuration file
+Densities/SkXDensityCa40p.dat    # Read density from this file
+20                  # Z
+20                  # N
+p                   # n or p
+0.1                 # Step (h)
+0.1                 # Lower bound
+10                  # Upper bound
+3000                # Max. n. iterations
+1e-3                # Relative tol. on the objective function (def. 1e-3)
+1e-3                # Absoulte tol. on the constraints (def. 1e-3)
+ca40p               # Output folder
+n                   # Print debug files (y or n) (NOT implemented yet)
