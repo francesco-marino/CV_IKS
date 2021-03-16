@@ -148,8 +148,8 @@ if __name__=="__main__":
     rho = getSampleDensity(n_orb, basis=basis )
     
     #nucl = Problem( OrbitalSet(basis[:n_orb]).countParticles(), rho=rho,basis=basis)
-    #nucl = Problem(Z=20,N=20,max_iter=4000, ub=10., debug='y', basis=ShellModelBasis(), data=readDensityFile("Densities/SkXDensityCa40p.dat") )
-    nucl = Problem(Z=20,N=20,max_iter=4000, ub=8., debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/rho_HO_20_particles_coupled_basis.dat"), constr_viol=1e-4 )
+    nucl = Problem(Z=20,N=20,max_iter=4000, ub=10., debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/SkXDensityCa40p.dat") )
+    #nucl = Problem(Z=20,N=20,max_iter=4000, ub=6., debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/rho_HO_20_particles_coupled_basis.dat"), constr_viol=1e-4 )
     data, info = nucl.solve()
     data = loadData(nucl.datafile)
     x0 = nucl.getStartingPoint()
@@ -165,7 +165,5 @@ if __name__=="__main__":
     plt.plot(s0.grid, s0.getPotential(), ls='-.', c='r',  label="Init")
     plt.grid(); plt.legend()
     
-    plt.figure(1)
-    plt.grid(); plt.legend()
-    
+   
   

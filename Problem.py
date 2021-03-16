@@ -420,8 +420,8 @@ class Problem(ipopt.problem):
         self.addOption(b'tol', self.rel_tol)
         self.addOption(b'constr_viol_tol', self.constr_viol)
         self.addOption(b"output_file", b"ipopt.out")
-        self.addOption(b"hessian_approximation", b"exact")
-        # self.addOption(b'hessian_approximation', b'limited-memory')
+        #self.addOption(b"hessian_approximation", b"exact")
+        self.addOption(b'hessian_approximation', b'limited-memory')
         
         
         
@@ -542,8 +542,8 @@ if __name__=="__main__":
     u0 = dummy.getU(x0)
     
     
-    # nucl = Problem(20,20,data=quickLoad(),max_iter=4000, debug='y', basis=CoupledHOBasis(), rel_tol=1e-4, constr_viol=1e-4  )
-    nucl = Problem(Z=20,N=20,max_iter=4000, ub=8., debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/rho_HO_20_particles_coupled_basis.dat"), constr_viol=1e-4 )
+    nucl = Problem(20,20,data=quickLoad(),max_iter=4000, debug='y', basis=ShellModelBasis(), rel_tol=1e-4, constr_viol=1e-4  )
+    # nucl = Problem(Z=20,N=20,max_iter=4000, ub=8., debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/rho_HO_20_particles_coupled_basis.dat"), constr_viol=1e-4 )
     print (nucl)
     data, info = nucl.solve()
     data = loadData(nucl.output_folder+"\data")
