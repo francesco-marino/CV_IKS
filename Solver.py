@@ -1,21 +1,38 @@
 # -*- coding: utf-8 -*-
-"""
-Created on Mon Sep 21 14:26:50 2020
 
-@author: Francesco
-"""
+
+
 import numpy as np
 from scipy.sparse import csc_matrix
 from scipy.sparse.linalg import spsolve, lsqr
 import matplotlib.pyplot as plt
 
-from Problem  import Problem, getSampleDensity, quickLoad
+from Problem  import Problem, quickLoad
 from Orbitals import UncoupledHOBasis, ShellModelBasis
 from Constants import coeffSch
 from Misc import loadData, read
 
 
 class Solver(object):
+    
+    """
+    A class to determine the potential and eigenvalues of an IKS problem,
+    given a set of rescaled orbitals 
+
+    ...
+
+    Parameters
+    ----------
+    problem: Problem
+        an instance of the class Problem
+    
+    x: np.array
+        value of the orbitals (default: [])
+        By default, 
+        
+    
+    
+    """
     
     def __init__(self, problem, x=[] ):    
         assert ( isinstance(problem, Problem) )
@@ -28,32 +45,49 @@ class Solver(object):
         self.x = self.data['x'] if x.shape[0]==0 else x
         self._getOrbitals(self.x)
     
-    
+    """
+    """
     def _getOrbitals(self, x):
         self.u, self.du, self.d2u = self.getU(x)
         #self.b = self._getB(); self.A = self._getA()
         self.A, self.b = self._AB()
         
         
-        
+    """
+    Define the matrix A and vector B.
+    The Lagrange multipliers (potential + eigenvalues) are determined by solving
+    the linear problem Ax=b (see solve).
+    As A is not a squared matrix, the approximate solution is found with a least-square
+    method.
+    
+    Returns
+    ----------
+    A: np.array(n_points*n_orbitals, n_constr)
+    B: np.array(n_points*n_orbitals)
+    """
     def _AB(self):
         _len = self.n_points*self.problem.n_orbitals
         # A -> row=(orbital,point); col=constr
         # B -> row=(orbital,point)
+        # Ax=B -> x: row=constr 
         A = np.zeros( (_len, self.problem.n_constr) )
         B = np.zeros( _len )
+        # Row index
         r = 0
+        # k: orbital; p: point
         for k in range(self.problem.n_orbitals):
             l = self.orbital_set[k].l
             for p in range(self.n_points):
+                # Rhs  (k,p)
                 B[r]   = coeffSch * ( self.d2u[k,p] -l*(l+1)/self.grid[p]**2 * self.u[k,p] )
-                # Density constraints
+                # Density constraints (first n_points constraints)
                 A[r,p] = self.u[k,p]
-                # Orthonormality
+                # Orthonormality constr. 
                 for a, (i,j) in enumerate(self.problem.pairs):
+                    # Find "j" orbitals "paired" with k
                     if k==i:
                         A[r,self.n_points+a] += - self.u[j,p]
-                # Update row
+                # Update row number 
                 r += 1
         return A, B
         
@@ -120,6 +154,23 @@ class Solver(object):
             d2u[j,:]= self.d_d2x(u[j,:])
         return u, du, d2u
     
+    """
+    Utility function.
+    Split array of Lagrange multipliers into potential
+    and energy eigenvalues
+    
+    Parameters
+    ----------
+    x: np.array(n_constr)
+        array of Lagrange multipliers (v + epsilon)
+    
+    Returns
+    ----------
+    v: np.array(n_points)
+        potential
+    eps: np.array(n_constr-n_points)
+        energy eigenvalues epsilon
+    """
     def _getVandE(self, lambd):
         return lambd[:self.n_points], lambd[self.n_points:]
     
@@ -142,18 +193,30 @@ class Solver(object):
   
   
     
+    """
+    Solve a matrix problem for potential and eigenvalues
     
+    Returns
+    ----------
+    x: np.array(n_constr)
+        Lagrange multipliers (v(r),epsilon)
+    check: bool
+        closure test of the numerical procedure
+    """
     def solve(self):
         print ("A\t",self.A.shape,"\tb\t",self.b.shape)
+        # build sparse matrix
         A_sp = csc_matrix(self.A, dtype=float)
         # x = spsolve(A_sp, self.b)
+        # Solve with least-squares
         x, istop, itn, r1norm = lsqr(A_sp, self.b, atol=1e-9, btol=1e-9)[:4]
         check = np.allclose( A_sp.dot(x), self.b )
-        # Write to file
+        # Write potential to file
         with open(self.pot_file, 'w') as fv:
             v,eps = self._getVandE(x)
             for rr, vv in zip(self.grid, v):
                 fv.write("{rr:.2f}\t{vv:.10E}\n".format(rr=rr, vv=vv) )
+        # Write epsilon eigenvalues
         with open(self.epsilon_file, 'w') as fe:
             v,eps = self._getVandE(x)
             for k, (i,j) in enumerate(self.pairs):
@@ -161,7 +224,14 @@ class Solver(object):
         return x, check
     
     
+    """
+    Yields the potential
     
+    Returns
+    ----------
+    v: np.array(n_points)
+        the potential
+    """
     def getPotential(self):
         x, check = self.solve()
         v,eps = self._getVandE(x)

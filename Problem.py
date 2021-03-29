@@ -22,17 +22,33 @@ from EigenFunctions import HO_3D
 
 class Problem(ipopt.problem):
     """
-    A class used to represent an IKS problem
+    A class used to represent a nuclear Inverse Kohn-Sham (IKS) problem.
+    
+    
+    Outline of the IKS callbacks:
+        objective:
+            the function to be minimized (the kinetic energy)
+        gradient:
+            gradient of the objective function
+        constraints:
+            constraint functions [density and overlap integral (orthonormality)] 
+        jacobianstructure:
+            non-zero elements of the jacobian (sparse matrix)
+        jacobian:
+            jacobian matrix of the constraints
+        hessianstructure (TODO)
+        hessian (TODO)
 
     ...
 
-    Attributes
+    Parameters
     ----------
-    Z: int
+    Z : int
         Number of protons
-    N: int
+    N : int
         Number of neutrons (default 0)
-    rho:
+    rho : function
+        target density function (default None)
     lb : float
         lower bound of the mesh (default 0.1)
     ub : float
@@ -41,14 +57,17 @@ class Problem(ipopt.problem):
         step (default 0.1)
     n_type : string
         run calculations for either protons ('p') or neutrons ('n') (default 'p')
-    data:
+    data : list
+        if rho is None, generate target density by interpolating data[0] (r) and data[1] (rho) with a spline (default [])
     basis : orbital.OrbitalSet
         basis, described by quantum numbers nlj or nl (default orbital.ShellModelBasis)
     max_iter : int
     rel_tol : float
     constr_viol : float
     output_folder : str
+        name of the folder inside Results where the output is saved
     debug : str
+        (not implemnted yet)
         
     
     Methods
@@ -75,7 +94,7 @@ class Problem(ipopt.problem):
         # Spatial grid [lb, lb+h, ..., ub]
         self.grid = np.linspace(lb, ub, self.n_points)
         # Integration factors
-        self.h_i  = np.array([simpsonCoeff(i,self.n_points) for i in range(self.n_points) ]) * self.h/3.
+        # self.h_i  = np.array([simpsonCoeff(i,self.n_points) for i in range(self.n_points) ]) * self.h/3.
         
         # Derivative operators
         self.d_dx  = FinDiff(0, self.h, 1, acc=4)
@@ -114,11 +133,13 @@ class Problem(ipopt.problem):
         if len(self.output_folder)>0 and not os.path.exists(self.output_folder):
             os.makedirs(self.output_folder)
         
-        self.debug = True if debug=='y' else False
-        self.dbg_file = open(self.output_folder+"/debug.dat", 'w')
+        #self.debug = True if debug=='y' else False
+        #self.dbg_file = open(self.output_folder+"/debug.dat", 'w')
         
         # Output files
-        self.x_file = self.output_folder + "/x.dat"
+        # Rescaled orbitals f(r) 
+        self.f_file = self.output_folder + "/f.dat"
+        # Radial orbitals u(r)
         self.u_file = self.output_folder + "/u.dat"
         self.pot_file = self.output_folder + "/potential.dat"
         self.epsilon_file  = self.output_folder + "/epsilon.dat"
@@ -149,6 +170,7 @@ class Problem(ipopt.problem):
     
     """
     def objective(self, x):
+        # Reshape x into matrix and get its derivatives
         x = np.reshape(x, (self.n_orbitals,self.n_points) )
         d1x, d2x = self._deriv(x)
         # Sum_j (d_j integral_j)
@@ -158,7 +180,7 @@ class Problem(ipopt.problem):
     
     
     """
-    Returns I_j. See objective
+    Returns I_j. Called in objective
     """
     def _integral_j(self, x, d1x, d2x, j):
         arr = x[j,:] * ( self.C0[j,:]*x[j,:] + self.C1*d1x[j,:] + self.C2*d2x[j,:] )
@@ -191,10 +213,11 @@ class Problem(ipopt.problem):
     
     """
     Current value of the constraint functions
+    
     Returns
     ----------
         : np.array(self.n_constraints)
-        constraints at given x
+        constraints at a given x
     """        
     def constraints(self, x):
         x = np.reshape(x, (self.n_orbitals,self.n_points) )
@@ -310,7 +333,7 @@ class Problem(ipopt.problem):
         # Save the dictionary to file
         saveData(self.datafile, self.results)
         # Print to file
-        with open(self.x_file, 'w') as fx:
+        with open(self.f_file, 'w') as fx:
             with open(self.u_file, 'w') as fu:
                 u = self.getU(x)
                 x = np.reshape(x, (self.n_orbitals,self.n_points) )
@@ -428,7 +451,8 @@ class Problem(ipopt.problem):
     def setSolverOptions(self):
         """
         Solver options: relative tolerance on the objective function;
-        absolute tolerance on the violation of constraints
+        absolute tolerance on the violation of constraints;
+        maximum number of iterations
         """
         # Watch out! Put b (binary) in front of option strings    
         self.addOption(b'mu_strategy', b'adaptive')
