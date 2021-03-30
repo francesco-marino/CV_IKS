@@ -86,6 +86,13 @@ class OrbitalSet(object):
             s += oo.occupation
         return s
     
+    """
+    Reset counter
+    """
+    def reset(self):
+        self.index = 0      # see __next__
+        self.n_particles = self.countParticles()
+    
     
 
                 

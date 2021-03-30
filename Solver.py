@@ -64,6 +64,7 @@ class Solver(object):
     ----------
     A: np.array(n_points*n_orbitals, n_constr)
     B: np.array(n_points*n_orbitals)
+    
     """
     def _AB(self):
         _len = self.n_points*self.problem.n_orbitals
@@ -244,11 +245,14 @@ class Solver(object):
 
 if __name__=="__main__":
     nucl = Problem(Z=20,N=20, n_type='p', max_iter=4000, ub=10., debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/SkXDensityCa40p.dat") )
-    # results, info = nucl.solve()
+    #results, info = nucl.solve()
+    
+    nucl.setDensity(data=quickLoad("Densities/SkXDensityCa40p.dat"))
     
     solver = Solver(nucl)
     x, check = solver.solve()
     print (check)
+    
     
     # Benchmark
     out = read("Potentials\pot_ca40_skx.dat")

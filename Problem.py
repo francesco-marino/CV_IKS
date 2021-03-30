@@ -60,12 +60,12 @@ class Problem(ipopt.problem):
     data : list
         if rho is None, generate target density by interpolating data[0] (r) and data[1] (rho) with a spline (default [])
     basis : orbital.OrbitalSet
-        basis, described by quantum numbers nlj or nl (default orbital.ShellModelBasis)
+        basis, described by quantum numbers nlj or nl (default orbital.ShellModelBasis, i.e. nlj)
     max_iter : int
     rel_tol : float
     constr_viol : float
     output_folder : str
-        name of the folder inside Results where the output is saved
+        name of the folder inside Results where the output is saved (default Output)
     debug : str
         (not implemnted yet)
         
@@ -133,7 +133,7 @@ class Problem(ipopt.problem):
         if len(self.output_folder)>0 and not os.path.exists(self.output_folder):
             os.makedirs(self.output_folder)
         
-        #self.debug = True if debug=='y' else False
+        self.debug = True if debug=='y' else False
         #self.dbg_file = open(self.output_folder+"/debug.dat", 'w')
         
         # Output files
@@ -150,7 +150,30 @@ class Problem(ipopt.problem):
         
         # Initialize ipopt
         self._setUp(max_iter,rel_tol,constr_viol)
-      
+        
+        
+    
+    
+    """
+    Change the target  density 
+    
+    Parameters
+    ----------
+    rho:
+        density function (same as __init__)
+    data: 
+        data (r, rho(r) ) (same as __init__)
+    output_folder: str
+        name of the output folder inside Results
+    
+    """
+    def setDensity(self, rho=None, data=[], output_folder="Output"):
+        if rho is None and len(data)==0:
+            raise ValueError("Error: no valid density was provided")
+        else:
+            self.basis.reset()
+            self.__init__(self.Z, self.N, rho, self.lb, self.ub, self.h, self.n_type, data, \
+               self.basis, self.max_iter, self.rel_tol, self.constr_viol, output_folder, self.debug )
     
     
     """
@@ -380,7 +403,7 @@ class Problem(ipopt.problem):
         st = "Z={Z}\tN={N}\n".format(Z=self.Z, N=self.N)
         st += "Interval [{lb}:{ub}]\th={h}\n".format(lb=self.lb,ub=self.ub,h=self.h)
         if len(self.output_folder)>0:
-            st += "Output directory: {dd}".format(dd=self.output_folder) 
+            st += "Output directory: {dd}\n".format(dd=self.output_folder) 
         st += "N. points={np}\tN. constraints={nc}\n\nN.orbitals={nv}\n".format(np=self.n_points,nc=self.n_constr,nv=self.n_orbitals)
         st += str(self.orbital_set) +"\n"
         return st
@@ -565,6 +588,8 @@ Things to do or check:
     - save output in a dictionary or file
     - understand coupled vs. uncoupled basis
     - compute the potential
+    
+    - is the spline a good way to interpolate the density?
 """
 
 if __name__=="__main__":
