@@ -18,8 +18,6 @@ from Misc import simpsonCoeff, saveData, loadData
 from EigenFunctions import HO_3D
 
 
-
-
 class Problem(ipopt.problem):
     """
     A class used to represent an IKS problem
@@ -53,7 +51,7 @@ class Problem(ipopt.problem):
     
     Methods
     -------
-    
+
     """
     
     def __init__(self,Z,N=0,rho=None, lb=0.1,ub=10., h=0.1, n_type="p", data=[], basis=ShellModelBasis(),\
@@ -83,6 +81,7 @@ class Problem(ipopt.problem):
          
         # Orbitals
         self.basis = basis
+        #print("??????", basis==ShellModelBasis())
         self.orbital_set = getOrbitalSet(self.n_particles, basis)
         self.n_orbitals = len(self.orbital_set)
         # Pairs (i,j) of non-orthogonal orbitals
@@ -103,7 +102,7 @@ class Problem(ipopt.problem):
         self.tab_rho = self.rho(self.grid)
         self.d1_rho  = self.d_dx( self.tab_rho)
         self.d2_rho  = self.d_d2x(self.tab_rho)   
-        # Integration factor: 4 pi r^2 rho^2 
+        # Integration factor: 4 pi r^2 rho
         self.rho_r2  = 4.*np.pi * self.tab_rho * np.power(self.grid, 2)       
         # C0,C1,C2
         self.C0, self.C1, self.C2 = self._getCFunctions()
@@ -144,7 +143,7 @@ class Problem(ipopt.problem):
     Returns
     ----------
     obj: float
-        the current value of the objevtive function
+        the current value of the objective function
     
     
     """
@@ -283,6 +282,7 @@ class Problem(ipopt.problem):
     
     def solve(self):
         st = self.getStartingPoint() 
+        #print("starting simulation")
         x, info = super().solve(st)
         print (info['status_msg'])
         # Copy to the results dictionary
@@ -367,8 +367,8 @@ class Problem(ipopt.problem):
     
     
     def getRhoFromData(self, r, rho):
-        ff, d1, d2 = getRhoFromData(r, rho)
-        return ff
+       ff, d1, d2 = getRhoFromData(r, rho)
+       return ff
     
     
     """
@@ -390,6 +390,7 @@ class Problem(ipopt.problem):
     
     def _getConstraintsValue(self):
         arr = np.ones(self.n_constr)
+        #print(self.pairs)
         for k, (i,j) in enumerate(self.pairs):
             # Enforce <i|j>=0  (if i!=j)
             if i != j:
@@ -463,11 +464,6 @@ class Problem(ipopt.problem):
         return np.sum( arr*self.h )
     
     
-        
-    
-    
-    
-    
     
     
     
@@ -520,7 +516,7 @@ def getSampleDensity(n_orb, basis=ShellModelBasis() ):
         arr = np.array( [basis[j].occupation * wf[j](r)**2 for j in range(n_orb)] )
         return np.sum(arr,axis=0)/(4.*np.pi)
     return rho
-        
+
 
 """
 Things to do or check:
@@ -531,6 +527,7 @@ Things to do or check:
     - save output in a dictionary or file
     - understand coupled vs. uncoupled basis
     - compute the potential
+    - penalty
 """
 
 if __name__=="__main__":
@@ -541,13 +538,12 @@ if __name__=="__main__":
     x0 = dummy.getStartingPoint()
     u0 = dummy.getU(x0)
     
-    
-    nucl = Problem(20,20,data=quickLoad(),max_iter=4000, debug='y', basis=ShellModelBasis(), rel_tol=1e-4, constr_viol=1e-4  )
-    # nucl = Problem(Z=20,N=20,max_iter=4000, ub=8., debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/rho_HO_20_particles_coupled_basis.dat"), constr_viol=1e-4 )
+    #r,rho = quickLoad()
+    #nucl = Problem(20, 20, data=(r,1.*rho), max_iter=4000, debug='y', basis=ShellModelBasis(), rel_tol=1e-4, constr_viol=1e-4  )
+    #nucl = Problem(Z=20,N=20,max_iter=4000, ub=8., debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/rho_HO_20_particles_coupled_basis.dat"), constr_viol=1e-4 )
+    nucl = Problem(82, 126, data=quickLoad("Densities/SOGDensityPb208p.dat"), max_iter=4000, debug='y', basis=ShellModelBasis(), rel_tol=1e-4, constr_viol=1e-4  )
     print (nucl)
     data, info = nucl.solve()
     data = loadData(nucl.output_folder+"\data")
     x = data['x']
     
-   
-   

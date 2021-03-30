@@ -18,7 +18,7 @@ from Misc import loadData
 class Solver(object):
     
     def __init__(self, problem, x=[] ):    
-        assert ( isinstance(problem, Problem) )
+        #assert ( isinstance(problem, Problem) ), "problema"
         self.problem = problem
         self.data = loadData( problem.datafile )
         self._getInfoFromProblem()
@@ -144,26 +144,37 @@ class Solver(object):
 if __name__=="__main__":
     
     basis = UncoupledHOBasis()
-    n_orb = 6
+    n_orb = 16
     rho = getSampleDensity(n_orb, basis=basis )
     
+    file = "Densities/SOGDensityPb208p.dat"
+    #file = "Densities/rho_HO_20_particles_coupled_basis.dat"
+    #file = "Densities/SkXDensityCa40p.dat"
+    
     #nucl = Problem( OrbitalSet(basis[:n_orb]).countParticles(), rho=rho,basis=basis)
-    nucl = Problem(Z=20,N=20,max_iter=4000, ub=10., debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/SkXDensityCa40p.dat") )
-    #nucl = Problem(Z=20,N=20,max_iter=4000, ub=6., debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/rho_HO_20_particles_coupled_basis.dat"), constr_viol=1e-4 )
+    nucl = Problem(Z=82,N=126,max_iter=4000, ub=10., debug='y', basis=ShellModelBasis(), data=quickLoad(file) )
+    #nucl = Problem(Z=20,N=20,max_iter=4000, ub=10., debug='y', basis=ShellModelBasis(), data=quickLoad(file) )
+    
     data, info = nucl.solve()
     data = loadData(nucl.datafile)
-    x0 = nucl.getStartingPoint()
-    
+    #x0 = nucl.getStartingPoint()
+    status = data['status']
+    print("printing status\t" + str(status))
     x = data['x']
-    s0 = Solver(nucl, x0)
+    #print(x)
+    #s0 = Solver(nucl, x0)
     solver = Solver(nucl, x)
     x, check = solver.solve()
     print (check)
     
-    plt.figure(0)
-    plt.plot(solver.grid, solver.getPotential(), '--', label="Solution")
-    plt.plot(s0.grid, s0.getPotential(), ls='-.', c='r',  label="Init")
-    plt.grid(); plt.legend()
     
-   
-  
+    #plotting results
+    fig, ax = plt.subplots(1,1,figsize=(5,5))
+    ax.plot(solver.grid, solver.getPotential(), '--', label="Solution")
+    #plt.plot(s0.grid, s0.getPotential(), ls='-.', c='r',  label="Init")
+    plt.grid(); plt.legend()
+    ax.set_title(file)
+    ax.set_xlabel("radius"),
+    ax.set_ylabel("potential")
+    ax.set_xlim([0, 9.7])
+    ax.set_ylim([-100, 10])    

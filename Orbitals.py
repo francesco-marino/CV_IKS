@@ -140,5 +140,5 @@ def getOrbitalSet(n_particles, basis=ShellModelBasis() ):
         
 
 if __name__=="__main__":
-    ss = getOrbitalSet(20)
+    ss = getOrbitalSet(82)
     print (ss)
