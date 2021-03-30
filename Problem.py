@@ -117,6 +117,7 @@ class Problem(ipopt.problem):
         self.n_constr = self.n_points + len(self.pairs)
         
         # Density and its derivatives
+        self.data = data
         self.rho = rho if rho!=None else self.getRhoFromData( data[0], data[1] )
         # Tabulate rho and its derivatives
         self.tab_rho = self.rho(self.grid)
@@ -344,13 +345,14 @@ class Problem(ipopt.problem):
    
     
     def solve(self):
+        # Set the starting point
         st = self.getStartingPoint() 
         x, info = super().solve(st)
         print (info['status_msg'])
         # Copy to the results dictionary
         self.results = dict()           # Reset
         keys = ['status','x','u','obj','lagrange','summary', 'grid', 'start']
-        entries = [ info['status_msg'], x, self.getU(x), info['obj_val'], info['mult_g'], str(self), self.grid, self.getStartingPoint()  ]
+        entries = [ info['status_msg'], x, self.getU(x), info['obj_val'], info['mult_g'], str(self), self.grid, st  ]
         for k, ee in zip(keys, entries):
             self.results[k] = ee
         # Save the dictionary to file
@@ -366,6 +368,7 @@ class Problem(ipopt.problem):
                     for rr, xx, uu in zip(self.grid, x[q,:], u[q,:] ):
                         fx.write("{rr:.2f}\t{xx:.10E}\n".format(rr=rr,xx=xx))
                         fu.write("{rr:.2f}\t{uu:.10E}\n".format(rr=rr,uu=uu))
+        # Return results dictionary and ipopt info message
         return self.results, info
     
     
@@ -463,7 +466,9 @@ class Problem(ipopt.problem):
     """
     def getStartingPoint(self):
         st = np.zeros( shape=(self.n_orbitals, self.n_points) )
+        self.orbital_set.reset()
         for j, oo in enumerate(self.orbital_set):
+            #print (oo.name)
             # print (j, str(oo))
             wf = HO_3D( oo.n, oo.l, self.nu)   # R(r) (=u(r)/r)
             # f(r) = u(r)/r / sqrt(4 pi rho(r) )
@@ -492,7 +497,7 @@ class Problem(ipopt.problem):
     Determine the reduced wave functions u(r) from the x array.
     Returns the matrix [u_1, .. ,u_n]
     """
-    def getU(self,x):
+    def getU(self, x):
         # u(r) = sqrt(4 pi rho(r) ) * r * f(r)
         x = np.reshape(x, (self.n_orbitals, self.n_points) )
         u = np.zeros_like(x)
@@ -590,6 +595,7 @@ Things to do or check:
     - compute the potential
     
     - is the spline a good way to interpolate the density?
+    - check "solve" matrix
 """
 
 if __name__=="__main__":

@@ -208,7 +208,6 @@ class Solver(object):
         print ("A\t",self.A.shape,"\tb\t",self.b.shape)
         # build sparse matrix
         A_sp = csc_matrix(self.A, dtype=float)
-        # x = spsolve(A_sp, self.b)
         # Solve with least-squares
         x, istop, itn, r1norm = lsqr(A_sp, self.b, atol=1e-9, btol=1e-9)[:4]
         check = np.allclose( A_sp.dot(x), self.b )
@@ -244,10 +243,14 @@ class Solver(object):
 
 
 if __name__=="__main__":
-    nucl = Problem(Z=20,N=20, n_type='p', max_iter=4000, ub=10., debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/SkXDensityCa40p.dat") )
-    #results, info = nucl.solve()
+    #nucl = Problem(Z=20,N=20, n_type='p', max_iter=4000, ub=10., debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/SkXDensityCa40p.dat") )
+    #nucl = Problem(Z=20,n_type='p', max_iter=4000, ub=8., debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/rho_HO_20_particles_coupled_basis.dat") )
+    nucl = Problem(Z=8,N=8, n_type='p', max_iter=4000, ub=8., debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/SkXDensityO16p.dat") )
     
-    nucl.setDensity(data=quickLoad("Densities/SkXDensityCa40p.dat"))
+    results, info = nucl.solve()
+    
+    #nucl.setDensity(data=quickLoad("Densities/SkXDensityCa40p.dat"))
+    
     
     solver = Solver(nucl)
     x, check = solver.solve()
@@ -255,15 +258,25 @@ if __name__=="__main__":
     
     
     # Benchmark
-    out = read("Potentials\pot_ca40_skx.dat")
+    out = read("Potentials\pot_o16_skx.dat")
     r, vp = out[0], out[1]
     
     plt.figure(0)
     pot = solver.getPotential()
-    plt.plot(solver.grid, pot - pot[0]+vp[0], '--', label="CV")
+    plt.plot(solver.grid, pot - pot[3]+vp[3], '--', label="CV")
     plt.plot(r, vp, label="exact")
-    plt.xlim(0.,10.); plt.ylim(-70.,5.)
+    plt.xlim(0.,10.); plt.ylim(-70.,25.)
     plt.grid(); plt.legend()
+    
+    
+    u = nucl.results['u']
+    plt.figure(1)
+    for j in range(u.shape[0]):
+        plt.plot(nucl.grid, u[j,:], ls='--', label=nucl.orbital_set[j].name)
+        plt.plot(nucl.grid, nucl.getU(nucl.results['start'])[j,:], label=nucl.orbital_set[j].name+"  INIT")
+    plt.legend()
+    
+    
     
    
   
