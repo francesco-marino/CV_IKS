@@ -19,49 +19,60 @@ from Orbitals import ShellModelBasis
 --- add integral precision from input and integral error evaluation
     -> change integral method
 
---- problem with basis and self.basis
-
---- must check if rho!=0 !! (see line 44)
+--- must check if rho!=0 !! (see line 56)
 
 ERROR: IKS does not converge for slightly different rho
 """
 # GAIDUK APPROACH 
 
 class Energy(object):
+    """
+    A class aimed to compute energies from a given potential or density.
     
-    def __init__(self, Z, N=0, rho=None, lb=0.1, ub=10., h=0.1, n_type="p",\
-                 data=[], basis=ShellModelBasis(), max_iter=2000, rel_tol=1e-3,\
-                 constr_viol=1e-3, debug='n', file="Densities/SkXDensityCa40p.dat",\
-                 output="Output", param_step=0.1, r_step=0.1):
+    Parameters
+    ----------
+    problem : Problem
+        class representing the IKS problem (see Problem)
+    output : str
+        folder directory inside Results/ in which the output is saved (default: Output)
+    param_step : float
+        step for the parametric intergal (default: 0.1)
+    r_step : float 
+        step for the radial integral (default: 0.1)
+    R_min : float
+        lower bound of the radial integral (default: 0.01)
+    R_max : float
+        upper bound of the radial integral (default: 10.)
+    
+    """
+    
+    def __init__(self, problem, output="Output", param_step=0.1, r_step=0.1, R_min=0.01, R_max=10.):
         
         self.dt = param_step
         self.dr = r_step
-        self.h = h
         self.T = np.arange(0.1, 1.1, self.dt) #parameter value list
-        self.R = np.arange(0.1, 10., self.dr)  #radius value list
+        self.R = np.arange(R_min, R_max, self.dr)  #radius value list
         
-        #density from data: both array and function
         #------------ADD control over rho==0!! (np.any / np.all)
-        self.rho_grid, self.rho = quickLoad(file) if data==[] else data
+        self.rho_grid, self.rho = quickLoad(problem.file) if problem.data==[] else problem.data
         #print(self.rho_grid, self.rho)
         self.rho_fun = interpolate(self.rho_grid, self.rho)
         
-        self.d_dx  = FinDiff(0, self.h, 1, acc=4)
+        self.d_dx  = FinDiff(0, problem.h, 1, acc=4)
 
-        #saving parameters for IPOPT minimization
+        self.problem = problem
         self.output = output
-        self.Z = Z
-        self.N = N 
-        self.max_iter = max_iter
-        self.debug = debug
-        #self.basis = basis
-        
-        self.rel_tol = rel_tol 
-        self.constr_viol = constr_viol
+    
         
     
     """
     Return system energy w/ Q, K, L scaling
+    
+    Returns
+    --------
+    E : float []
+        energy array from all scalings
+        
     """
     
     def solver(self):
@@ -87,6 +98,17 @@ class Energy(object):
     
     """
     Evaluate potential within the integration grid
+    
+    Parameters
+    ----------
+    v: float []
+        matrix of potentials
+    
+    Returns
+    ----------
+    v: float []
+        potential matrix evaluated in the integration radii 
+        
     """
     
     def _evalPotential(self, v):
@@ -105,6 +127,16 @@ class Energy(object):
     
     """
     Parametric potentials from IKS
+    
+    Returns
+    ----------
+    vQ: float []
+        potential matrix for Q scaling
+    vL: float []
+        potential matrix for L scaling
+    vZ: float []
+        potential matrix for Z scaling
+        
     """
     
     def IKS_Potential(self):
@@ -112,25 +144,23 @@ class Energy(object):
         self.status=[]
         for t in self.T: 
             print("\n\nComputing potential with parameter t: \t", t, '\n')
-            #defining the problem with (r,t*rho). it is an array and not a function
-            problem = Problem(self.Z, self.N, data=(self.rho_grid, t*self.rho),\
-                              max_iter=self.max_iter, debug=self.debug,\
-                              basis=ShellModelBasis(), rel_tol=self.rel_tol,\
-                              constr_viol=self.constr_viol, output_folder=self.output)
-            #print(self.basis)
-            #basis=ShellModelBasis()
-            #print(self.basis == basis)
-            #problem=Problem(20,20,data=(self.rho_grid, t*self.rho),max_iter=4000, debug='y',\
-            #                basis=basis, rel_tol=1e-4, constr_viol=1e-4, output_folder="Ca40SkX_En"  )
-            #computing and getting results
-            res, info = problem.solve()
+            
+            #setting output directory for each minimization
+            file = self.output + "/" + "minimization_t=" + str(t)
+            
+            #setting problem density with (r,t*rho)
+            self.problem.setDensity(data=(self.rho_grid, t*self.rho), output_folder=file)
+            
+            #computing eigenfunctions
+            res, info = self.problem.solve()
             x = res['x']
             self.status.append("Minimization with t = "+ str(t) + " : " + str(res['status']))
-            #computing and saving potentials
-            solv = Solver(problem, x)
+            
+            #computing potentials
+            solv = Solver(self.problem, x)
             v.append(solv.getPotential())
         
-        self.output = problem.output_folder
+        
         t_col=np.reshape(self.T,newshape=(-1,1))
         #print("\n t_col \t", np.shape(t_col))
             
@@ -139,6 +169,29 @@ class Energy(object):
     
     """
     Integral calculation for Q,L,Z-scaling
+    
+    Parameters
+    ----------
+    rho: float []
+        density  
+    Drho: float []
+        gradient density 
+    vQ: float []
+        potential matrix for Q scaling
+    vL: float []
+        potential matrix for L scaling
+    vZ: float []
+        potential matrix for Z scaling
+    
+    Returns
+    ----------
+    I_Q: float 
+        energy value for Q scaling
+    I_L: float 
+        energy value for L scaling
+    I_Z: float 
+        energy value for Z scaling
+        
     """
     
     def calcIntegral(self, rho, Drho, vQ, vL, vZ):
@@ -160,10 +213,16 @@ class Energy(object):
     
     """
     Printing energy on file
+    
+    Parameters
+    ----------
+    E : float []
+        energy array from all scalings
+        
     """
     
     def _saveE(self, E):
-        self.E_file = self.output + "/E.out"
+        self.E_file = "Results/" + self.output + "/E.out"
         with open(self.E_file, 'w') as fo:
             status = np.reshape(self.status, newshape=(-1,1))
             fo.write(str(status))
@@ -201,11 +260,13 @@ def interpolate(r, f):
 
 if __name__ == "__main__":
     
-    #file = "Densities/SOGDensityPb208p.dat"
-    #file = "Densities/SkXDensityCa40p.dat"
-    file = "Densities/rho_HO_20_particles_coupled_basis.dat"
-    energy = Energy(Z=20,N=0, max_iter=10, rel_tol=1e-4, constr_viol=1e-4, param_step=0.1, r_step=0.1, file=file, output="HO20coupled")
-    #energy = Energy(Z=20,N=20, max_iter=4000, rel_tol=1e-4, constr_viol=1e-4, param_step=0.1, r_step=0.1, file=file, output="Ca40SkX_En")
-    #energy = Energy(Z=82,N=126, max_iter=4000, rel_tol=1e-4, constr_viol=1e-4, param_step=0.1, r_step=0.1, file=file)#, output="Pb208SOG_En")
+    problem_IKS = Problem(Z=20,N=20, max_iter=2000, rel_tol=1e-4, constr_viol=1e-4, data=quickLoad("Densities/SkXDensityCa40p.dat"))
+    #problem_IKS = Problem(Z=20,N=20, max_iter=4000, rel_tol=1e-4, constr_viol=1e-4, data=quickLoad("Densities/rho_HO_20_particles_coupled_basis.dat"))
+    #problem_IKS = Problem(Z=82,N=126, max_iter=4000, rel_tol=1e-4, constr_viol=1e-4, data=quickLoad("Densities/SOGDensityPb208p.dat"))
+    
+    energy = Energy(problem_IKS, "Ca40SkX_En")
+    #energy = Energy(problem_IKS, "HO20coupled")
+    #energy = Energy(problem_IKS, "Pb208SOG_En")
+    
     E = energy.solver()
     print("Energies", E)

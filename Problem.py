@@ -18,19 +18,37 @@ from Misc import simpsonCoeff, saveData, loadData
 from EigenFunctions import HO_3D
 
 
+
+
 class Problem(ipopt.problem):
     """
-    A class used to represent an IKS problem
+    A class used to represent a nuclear Inverse Kohn-Sham (IKS) problem.
+    
+    
+    Outline of the IKS callbacks:
+        objective:
+            the function to be minimized (the kinetic energy)
+        gradient:
+            gradient of the objective function
+        constraints:
+            constraint functions [density and overlap integral (orthonormality)] 
+        jacobianstructure:
+            non-zero elements of the jacobian (sparse matrix)
+        jacobian:
+            jacobian matrix of the constraints
+        hessianstructure (TODO)
+        hessian (TODO)
 
     ...
 
-    Attributes
+    Parameters
     ----------
-    Z: int
+    Z : int
         Number of protons
-    N: int
+    N : int
         Number of neutrons (default 0)
-    rho:
+    rho : function
+        target density function (default None)
     lb : float
         lower bound of the mesh (default 0.1)
     ub : float
@@ -39,19 +57,22 @@ class Problem(ipopt.problem):
         step (default 0.1)
     n_type : string
         run calculations for either protons ('p') or neutrons ('n') (default 'p')
-    data:
+    data : list
+        if rho is None, generate target density by interpolating data[0] (r) and data[1] (rho) with a spline (default [])
     basis : orbital.OrbitalSet
-        basis, described by quantum numbers nlj or nl (default orbital.ShellModelBasis)
+        basis, described by quantum numbers nlj or nl (default orbital.ShellModelBasis, i.e. nlj)
     max_iter : int
     rel_tol : float
     constr_viol : float
     output_folder : str
+        name of the folder inside Results where the output is saved (default Output)
     debug : str
+        (not implemnted yet)
         
     
     Methods
     -------
-
+    
     """
     
     def __init__(self,Z,N=0,rho=None, lb=0.1,ub=10., h=0.1, n_type="p", data=[], basis=ShellModelBasis(),\
@@ -73,7 +94,7 @@ class Problem(ipopt.problem):
         # Spatial grid [lb, lb+h, ..., ub]
         self.grid = np.linspace(lb, ub, self.n_points)
         # Integration factors
-        self.h_i  = np.array([simpsonCoeff(i,self.n_points) for i in range(self.n_points) ]) * self.h/3.
+        # self.h_i  = np.array([simpsonCoeff(i,self.n_points) for i in range(self.n_points) ]) * self.h/3.
         
         # Derivative operators
         self.d_dx  = FinDiff(0, self.h, 1, acc=4)
@@ -81,7 +102,6 @@ class Problem(ipopt.problem):
          
         # Orbitals
         self.basis = basis
-        #print("??????", basis==ShellModelBasis())
         self.orbital_set = getOrbitalSet(self.n_particles, basis)
         self.n_orbitals = len(self.orbital_set)
         # Pairs (i,j) of non-orthogonal orbitals
@@ -97,6 +117,7 @@ class Problem(ipopt.problem):
         self.n_constr = self.n_points + len(self.pairs)
         
         # Density and its derivatives
+        self.data = data
         self.rho = rho if rho!=None else self.getRhoFromData( data[0], data[1] )
         # Tabulate rho and its derivatives
         self.tab_rho = self.rho(self.grid)
@@ -114,10 +135,12 @@ class Problem(ipopt.problem):
             os.makedirs(self.output_folder)
         
         self.debug = True if debug=='y' else False
-        self.dbg_file = open(self.output_folder+"/debug.dat", 'w')
+        #self.dbg_file = open(self.output_folder+"/debug.dat", 'w')
         
         # Output files
-        self.x_file = self.output_folder + "/x.dat"
+        # Rescaled orbitals f(r) 
+        self.f_file = self.output_folder + "/f.dat"
+        # Radial orbitals u(r)
         self.u_file = self.output_folder + "/u.dat"
         self.pot_file = self.output_folder + "/potential.dat"
         self.epsilon_file  = self.output_folder + "/epsilon.dat"
@@ -128,7 +151,30 @@ class Problem(ipopt.problem):
         
         # Initialize ipopt
         self._setUp(max_iter,rel_tol,constr_viol)
-      
+        
+        
+    
+    
+    """
+    Change the target  density 
+    
+    Parameters
+    ----------
+    rho:
+        density function (same as __init__)
+    data: 
+        data (r, rho(r) ) (same as __init__)
+    output_folder: str
+        name of the output folder inside Results
+    
+    """
+    def setDensity(self, rho=None, data=[], output_folder="Output"):
+        if rho is None and len(data)==0:
+            raise ValueError("Error: no valid density was provided")
+        else:
+            self.basis.reset()
+            self.__init__(self.Z, self.N, rho, self.lb, self.ub, self.h, self.n_type, data, \
+               self.basis, self.max_iter, self.rel_tol, self.constr_viol, output_folder, self.debug )
     
     
     """
@@ -148,12 +194,24 @@ class Problem(ipopt.problem):
     
     """
     def objective(self, x):
+        # Reshape x into matrix and get its derivatives
         x = np.reshape(x, (self.n_orbitals,self.n_points) )
         d1x, d2x = self._deriv(x)
         # Sum_j (d_j integral_j)
         arr = np.array([ self.orbital_set[j].occupation * self._integral_j(x, d1x, d2x, j) for j in range(self.n_orbitals) ])
         obj = (-T) * np.sum(arr)
         return obj
+    
+    
+    """
+    Returns I_j. Called in objective
+    """
+    def _integral_j(self, x, d1x, d2x, j):
+        arr = x[j,:] * ( self.C0[j,:]*x[j,:] + self.C1*d1x[j,:] + self.C2*d2x[j,:] )
+        # arr = self.C0[j,:] * x[j,:]**2  - self.C2 * d1x[j,:]**2
+        return np.sum( arr*self.h )
+    
+    
         
     """
     Gradient of the objective function dO/d[f_q(p)]
@@ -170,14 +228,20 @@ class Problem(ipopt.problem):
         for q in range(self.n_orbitals):
             deg = self.orbital_set[q].occupation
             rhs = 2.*( self.C0[q,:]*x[q,:] + self.C1*d1x[q,:] + self.C2*d2x[q,:] )  
-            # Why *h ???   HERE
+            # HERE
             grad[q,:] = (-T)* deg * rhs * self.h
+        # Reshape into 1d array
         return np.ndarray.flatten(grad)
     
     
     
     """
     Current value of the constraint functions
+    
+    Returns
+    ----------
+        : np.array(self.n_constraints)
+        constraints at a given x
     """        
     def constraints(self, x):
         x = np.reshape(x, (self.n_orbitals,self.n_points) )
@@ -281,20 +345,20 @@ class Problem(ipopt.problem):
    
     
     def solve(self):
+        # Set the starting point
         st = self.getStartingPoint() 
-        #print("starting simulation")
         x, info = super().solve(st)
         print (info['status_msg'])
         # Copy to the results dictionary
         self.results = dict()           # Reset
         keys = ['status','x','u','obj','lagrange','summary', 'grid', 'start']
-        entries = [ info['status_msg'], x, self.getU(x), info['obj_val'], info['mult_g'], str(self), self.grid, self.getStartingPoint()  ]
+        entries = [ info['status_msg'], x, self.getU(x), info['obj_val'], info['mult_g'], str(self), self.grid, st  ]
         for k, ee in zip(keys, entries):
             self.results[k] = ee
         # Save the dictionary to file
         saveData(self.datafile, self.results)
         # Print to file
-        with open(self.x_file, 'w') as fx:
+        with open(self.f_file, 'w') as fx:
             with open(self.u_file, 'w') as fu:
                 u = self.getU(x)
                 x = np.reshape(x, (self.n_orbitals,self.n_points) )
@@ -304,6 +368,7 @@ class Problem(ipopt.problem):
                     for rr, xx, uu in zip(self.grid, x[q,:], u[q,:] ):
                         fx.write("{rr:.2f}\t{xx:.10E}\n".format(rr=rr,xx=xx))
                         fu.write("{rr:.2f}\t{uu:.10E}\n".format(rr=rr,uu=uu))
+        # Return results dictionary and ipopt info message
         return self.results, info
     
     
@@ -341,7 +406,7 @@ class Problem(ipopt.problem):
         st = "Z={Z}\tN={N}\n".format(Z=self.Z, N=self.N)
         st += "Interval [{lb}:{ub}]\th={h}\n".format(lb=self.lb,ub=self.ub,h=self.h)
         if len(self.output_folder)>0:
-            st += "Output directory: {dd}".format(dd=self.output_folder) 
+            st += "Output directory: {dd}\n".format(dd=self.output_folder) 
         st += "N. points={np}\tN. constraints={nc}\n\nN.orbitals={nv}\n".format(np=self.n_points,nc=self.n_constr,nv=self.n_orbitals)
         st += str(self.orbital_set) +"\n"
         return st
@@ -353,7 +418,7 @@ class Problem(ipopt.problem):
     """
     def getPairs(self):
         ll = []
-        # If just one orbital, no need to <i|i>=1
+        # If just one orbital, no need to impose <i|i>=1
         if self.n_orbitals==1:
             return []
         for i in range(self.n_orbitals):
@@ -367,8 +432,8 @@ class Problem(ipopt.problem):
     
     
     def getRhoFromData(self, r, rho):
-       ff, d1, d2 = getRhoFromData(r, rho)
-       return ff
+        ff, d1, d2 = getRhoFromData(r, rho)
+        return ff
     
     
     """
@@ -390,7 +455,6 @@ class Problem(ipopt.problem):
     
     def _getConstraintsValue(self):
         arr = np.ones(self.n_constr)
-        #print(self.pairs)
         for k, (i,j) in enumerate(self.pairs):
             # Enforce <i|j>=0  (if i!=j)
             if i != j:
@@ -402,7 +466,9 @@ class Problem(ipopt.problem):
     """
     def getStartingPoint(self):
         st = np.zeros( shape=(self.n_orbitals, self.n_points) )
+        self.orbital_set.reset()
         for j, oo in enumerate(self.orbital_set):
+            #print (oo.name)
             # print (j, str(oo))
             wf = HO_3D( oo.n, oo.l, self.nu)   # R(r) (=u(r)/r)
             # f(r) = u(r)/r / sqrt(4 pi rho(r) )
@@ -413,7 +479,8 @@ class Problem(ipopt.problem):
     def setSolverOptions(self):
         """
         Solver options: relative tolerance on the objective function;
-        absolute tolerance on the violation of constraints
+        absolute tolerance on the violation of constraints;
+        maximum number of iterations
         """
         # Watch out! Put b (binary) in front of option strings    
         self.addOption(b'mu_strategy', b'adaptive')
@@ -430,7 +497,7 @@ class Problem(ipopt.problem):
     Determine the reduced wave functions u(r) from the x array.
     Returns the matrix [u_1, .. ,u_n]
     """
-    def getU(self,x):
+    def getU(self, x):
         # u(r) = sqrt(4 pi rho(r) ) * r * f(r)
         x = np.reshape(x, (self.n_orbitals, self.n_points) )
         u = np.zeros_like(x)
@@ -455,13 +522,12 @@ class Problem(ipopt.problem):
             d2x[j,:] = self.d_d2x( x[j,:] )
         return d1x, d2x
     
-    """
-    Returns I_j. See objective
-    """
-    def _integral_j(self, x, d1x, d2x, j):
-        arr = x[j,:] * ( self.C0[j,:]*x[j,:] + self.C1*d1x[j,:] + self.C2*d2x[j,:] )
-        # arr = self.C0[j,:] * x[j,:]**2  - self.C2 * d1x[j,:]**2
-        return np.sum( arr*self.h )
+    
+    
+    
+        
+    
+    
     
     
     
@@ -516,7 +582,7 @@ def getSampleDensity(n_orb, basis=ShellModelBasis() ):
         arr = np.array( [basis[j].occupation * wf[j](r)**2 for j in range(n_orb)] )
         return np.sum(arr,axis=0)/(4.*np.pi)
     return rho
-
+        
 
 """
 Things to do or check:
@@ -527,7 +593,9 @@ Things to do or check:
     - save output in a dictionary or file
     - understand coupled vs. uncoupled basis
     - compute the potential
-    - penalty
+    
+    - is the spline a good way to interpolate the density?
+    - check "solve" matrix
 """
 
 if __name__=="__main__":
@@ -538,12 +606,13 @@ if __name__=="__main__":
     x0 = dummy.getStartingPoint()
     u0 = dummy.getU(x0)
     
-    #r,rho = quickLoad()
-    #nucl = Problem(20, 20, data=(r,1.*rho), max_iter=4000, debug='y', basis=ShellModelBasis(), rel_tol=1e-4, constr_viol=1e-4  )
-    #nucl = Problem(Z=20,N=20,max_iter=4000, ub=8., debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/rho_HO_20_particles_coupled_basis.dat"), constr_viol=1e-4 )
-    nucl = Problem(82, 126, data=quickLoad("Densities/SOGDensityPb208p.dat"), max_iter=4000, debug='y', basis=ShellModelBasis(), rel_tol=1e-4, constr_viol=1e-4  )
+    
+    nucl = Problem(20,20,data=quickLoad(),max_iter=4000, debug='y', basis=ShellModelBasis(), rel_tol=1e-4, constr_viol=1e-4  )
+    # nucl = Problem(Z=20,N=20,max_iter=4000, ub=8., debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/rho_HO_20_particles_coupled_basis.dat"), constr_viol=1e-4 )
     print (nucl)
     data, info = nucl.solve()
     data = loadData(nucl.output_folder+"\data")
     x = data['x']
     
+   
+   

@@ -1,24 +1,41 @@
 # -*- coding: utf-8 -*-
-"""
-Created on Mon Sep 21 14:26:50 2020
 
-@author: Francesco
-"""
+
+
 import numpy as np
 from scipy.sparse import csc_matrix
 from scipy.sparse.linalg import spsolve, lsqr
 import matplotlib.pyplot as plt
 
-from Problem  import Problem, getSampleDensity, quickLoad
+from Problem  import Problem, quickLoad
 from Orbitals import UncoupledHOBasis, ShellModelBasis
 from Constants import coeffSch
-from Misc import loadData
+from Misc import loadData, read
 
 
 class Solver(object):
     
-    def __init__(self, problem, x=[] ):    
-        #assert ( isinstance(problem, Problem) ), "problema"
+    """
+    A class to determine the potential and eigenvalues of an IKS problem,
+    given a set of rescaled orbitals 
+
+    ...
+
+    Parameters
+    ----------
+    problem: Problem
+        an instance of the class Problem
+    
+    x: np.array
+        value of the orbitals (default: [])
+        By default, 
+        
+    
+    
+    """
+    
+    def __init__(self, problem, x=[] ):
+        assert ( isinstance(problem, Problem) )
         self.problem = problem
         self.data = loadData( problem.datafile )
         self._getInfoFromProblem()
@@ -28,13 +45,62 @@ class Solver(object):
         self.x = self.data['x'] if x.shape[0]==0 else x
         self._getOrbitals(self.x)
     
-    
+    """
+    """
     def _getOrbitals(self, x):
         self.u, self.du, self.d2u = self.getU(x)
-        self.b = self._getB()
-        self.A = self._getA()
+        #self.b = self._getB(); self.A = self._getA()
+        self.A, self.b = self._AB()
+        
+        
+    """
+    Define the matrix A and vector B.
+    The Lagrange multipliers (potential + eigenvalues) are determined by solving
+    the linear problem Ax=b (see solve).
+    As A is not a squared matrix, the approximate solution is found with a least-square
+    method.
     
+    Returns
+    ----------
+    A: np.array(n_points*n_orbitals, n_constr)
+    B: np.array(n_points*n_orbitals)
     
+    """
+    def _AB(self):
+        _len = self.n_points*self.problem.n_orbitals
+        # A -> row=(orbital,point); col=constr
+        # B -> row=(orbital,point)
+        # Ax=B -> x: row=constr 
+        A = np.zeros( (_len, self.problem.n_constr) )
+        B = np.zeros( _len )
+        # Row index
+        r = 0
+        # k: orbital; p: point
+        for k in range(self.problem.n_orbitals):
+            l = self.orbital_set[k].l
+            for p in range(self.n_points):
+                # Rhs  (k,p)
+                B[r]   = coeffSch * ( self.d2u[k,p] -l*(l+1)/self.grid[p]**2 * self.u[k,p] )
+                # Density constraints (first n_points constraints)
+                A[r,p] = self.u[k,p]
+                # Orthonormality constr. 
+                for a, (i,j) in enumerate(self.problem.pairs):
+                    # Find "j" orbitals "paired" with k
+                    if k==i:
+                        A[r,self.n_points+a] += - self.u[j,p]
+                # Update row number 
+                r += 1
+        return A, B
+        
+        
+                
+                
+            
+            
+                
+        
+        
+    """
     def _getB(self):
         _len = self.n_points*self.n_orbitals*(self.n_orbitals+1)//2
         B = np.zeros( _len )    #(_len, self.n_points) )
@@ -73,7 +139,7 @@ class Solver(object):
                                     if p==q and self.orbital_set[p].l==self.orbital_set[b].l and self.orbital_set[p].j==self.orbital_set[b].j:
                                         A[row:row+self.n_points, col] = - self.u[b,:]* self.u[p,:]
         return A
-    
+        """
     
    
     """
@@ -89,6 +155,23 @@ class Solver(object):
             d2u[j,:]= self.d_d2x(u[j,:])
         return u, du, d2u
     
+    """
+    Utility function.
+    Split array of Lagrange multipliers into potential
+    and energy eigenvalues
+    
+    Parameters
+    ----------
+    x: np.array(n_constr)
+        array of Lagrange multipliers (v + epsilon)
+    
+    Returns
+    ----------
+    v: np.array(n_points)
+        potential
+    eps: np.array(n_constr-n_points)
+        energy eigenvalues epsilon
+    """
     def _getVandE(self, lambd):
         return lambd[:self.n_points], lambd[self.n_points:]
     
@@ -111,18 +194,29 @@ class Solver(object):
   
   
     
+    """
+    Solve a matrix problem for potential and eigenvalues
     
+    Returns
+    ----------
+    x: np.array(n_constr)
+        Lagrange multipliers (v(r),epsilon)
+    check: bool
+        closure test of the numerical procedure
+    """
     def solve(self):
         print ("A\t",self.A.shape,"\tb\t",self.b.shape)
+        # build sparse matrix
         A_sp = csc_matrix(self.A, dtype=float)
-        # x = spsolve(A_sp, self.b)
+        # Solve with least-squares
         x, istop, itn, r1norm = lsqr(A_sp, self.b, atol=1e-9, btol=1e-9)[:4]
         check = np.allclose( A_sp.dot(x), self.b )
-        # Write to file
+        # Write potential to file
         with open(self.pot_file, 'w') as fv:
             v,eps = self._getVandE(x)
             for rr, vv in zip(self.grid, v):
                 fv.write("{rr:.2f}\t{vv:.10E}\n".format(rr=rr, vv=vv) )
+        # Write epsilon eigenvalues
         with open(self.epsilon_file, 'w') as fe:
             v,eps = self._getVandE(x)
             for k, (i,j) in enumerate(self.pairs):
@@ -130,7 +224,14 @@ class Solver(object):
         return x, check
     
     
+    """
+    Yields the potential
     
+    Returns
+    ----------
+    v: np.array(n_points)
+        the potential
+    """
     def getPotential(self):
         x, check = self.solve()
         v,eps = self._getVandE(x)
@@ -142,39 +243,40 @@ class Solver(object):
 
 
 if __name__=="__main__":
+    nucl = Problem(Z=20,N=20, n_type='p', max_iter=4000, ub=10., debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/SkXDensityCa40p.dat") )
+    #nucl = Problem(Z=20,n_type='p', max_iter=4000, ub=8., debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/rho_HO_20_particles_coupled_basis.dat") )
+    #nucl = Problem(Z=8,N=8, n_type='p', max_iter=4000, ub=8., debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/SkXDensityO16p.dat") )
     
-    basis = UncoupledHOBasis()
-    n_orb = 16
-    rho = getSampleDensity(n_orb, basis=basis )
+    results, info = nucl.solve()
     
-    file = "Densities/SOGDensityPb208p.dat"
-    #file = "Densities/rho_HO_20_particles_coupled_basis.dat"
-    #file = "Densities/SkXDensityCa40p.dat"
+    #nucl.setDensity(data=quickLoad("Densities/SkXDensityCa40p.dat"))
     
-    #nucl = Problem( OrbitalSet(basis[:n_orb]).countParticles(), rho=rho,basis=basis)
-    nucl = Problem(Z=82,N=126,max_iter=4000, ub=10., debug='y', basis=ShellModelBasis(), data=quickLoad(file) )
-    #nucl = Problem(Z=20,N=20,max_iter=4000, ub=10., debug='y', basis=ShellModelBasis(), data=quickLoad(file) )
     
-    data, info = nucl.solve()
-    data = loadData(nucl.datafile)
-    #x0 = nucl.getStartingPoint()
-    status = data['status']
-    print("printing status\t" + str(status))
-    x = data['x']
-    #print(x)
-    #s0 = Solver(nucl, x0)
-    solver = Solver(nucl, x)
+    solver = Solver(nucl)
     x, check = solver.solve()
     print (check)
     
     
-    #plotting results
-    fig, ax = plt.subplots(1,1,figsize=(5,5))
-    ax.plot(solver.grid, solver.getPotential(), '--', label="Solution")
-    #plt.plot(s0.grid, s0.getPotential(), ls='-.', c='r',  label="Init")
+    # Benchmark
+    out = read("Potentials\pot_o16_skx.dat")
+    r, vp = out[0], out[1]
+    
+    plt.figure(0)
+    pot = solver.getPotential()
+    plt.plot(solver.grid, pot - pot[3]+vp[3], '--', label="CV")
+    plt.plot(r, vp, label="exact")
+    plt.xlim(0.,10.); plt.ylim(-70.,25.)
     plt.grid(); plt.legend()
-    ax.set_title(file)
-    ax.set_xlabel("radius"),
-    ax.set_ylabel("potential")
-    ax.set_xlim([0, 9.7])
-    ax.set_ylim([-100, 10])    
+    
+    
+    u = nucl.results['u']
+    plt.figure(1)
+    for j in range(u.shape[0]):
+        plt.plot(nucl.grid, u[j,:], ls='--', label=nucl.orbital_set[j].name)
+        plt.plot(nucl.grid, nucl.getU(nucl.results['start'])[j,:], label=nucl.orbital_set[j].name+"  INIT")
+    plt.legend()
+    
+    
+    
+   
+  
