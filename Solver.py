@@ -243,9 +243,9 @@ class Solver(object):
 
 
 if __name__=="__main__":
-    #nucl = Problem(Z=20,N=20, n_type='p', max_iter=4000, ub=10., debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/SkXDensityCa40p.dat") )
+    nucl = Problem(Z=20,N=20, n_type='p', max_iter=4000, ub=10., debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/SkXDensityCa40p.dat") )
     #nucl = Problem(Z=20,n_type='p', max_iter=4000, ub=8., debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/rho_HO_20_particles_coupled_basis.dat") )
-    nucl = Problem(Z=8,N=8, n_type='p', max_iter=4000, ub=8., debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/SkXDensityO16p.dat") )
+    #nucl = Problem(Z=8,N=8, n_type='p', max_iter=4000, ub=8., debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/SkXDensityO16p.dat") )
     
     results, info = nucl.solve()
     
@@ -258,13 +258,18 @@ if __name__=="__main__":
     
     
     # Benchmark
-    out = read("Potentials\pot_o16_skx.dat")
+    out = read("Potentials\pot_ca40_skx.dat")
     r, vp = out[0], out[1]
+    
+    
+    out = read("Potentials\pot_ca40_skx_other_iks.dat")
+    r_other, vp_other = out[0], out[1]
     
     plt.figure(0)
     pot = solver.getPotential()
     plt.plot(solver.grid, pot - pot[3]+vp[3], '--', label="CV")
     plt.plot(r, vp, label="exact")
+    plt.plot(r_other, vp_other, label="other")
     plt.xlim(0.,10.); plt.ylim(-70.,25.)
     plt.grid(); plt.legend()
     

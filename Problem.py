@@ -327,8 +327,8 @@ class Problem(ipopt.problem):
         for q in range(self.n_orbitals):
             deg = self.orbital_set[q].occupation
             # Objective function    HERE
-            # rhs  = obj_factor * 2.*deg *(-T) * ( self.C0[q,:] -self.C1 + self.C2 ) *self.h
-            rhs  = obj_factor * 2.*deg *(-T) * self.C0[q,:] *self.h
+            rhs  = obj_factor * 2.*deg *(-T) * ( self.C0[q,:] -self.C1 + self.C2 ) *self.h
+            #rhs  = obj_factor * 2.*deg *(-T) * self.C0[q,:] *self.h
             # Density constraint
             rhs += lagrange[:self.n_points] * 2.*deg
             np.fill_diagonal( hess[q,:,q,:], rhs )
@@ -488,8 +488,9 @@ class Problem(ipopt.problem):
         self.addOption(b'tol', self.rel_tol)
         self.addOption(b'constr_viol_tol', self.constr_viol)
         self.addOption(b"output_file", b"ipopt.out")
-        #self.addOption(b"hessian_approximation", b"exact")
-        self.addOption(b'hessian_approximation', b'limited-memory')
+        self.addOption(b"hessian_constant", b"no")
+        self.addOption(b"hessian_approximation", b"exact")
+        #self.addOption(b'hessian_approximation', b'limited-memory')
         
         
         
@@ -596,6 +597,13 @@ Things to do or check:
     
     - is the spline a good way to interpolate the density?
     - check "solve" matrix
+    - implement logarithmic derivatives:
+        
+        d(ln f(x))/dx = 1/f(x) df/dx
+    =>  df/dx = f(x) d(ln f(x))/dx
+    The advantage is that, when f(x) is exponentially small, the derivative
+    of the logarithm can be computed in a more stable way numerically.
+    Is it worth implementing?
 """
 
 if __name__=="__main__":
