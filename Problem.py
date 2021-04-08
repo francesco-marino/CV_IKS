@@ -66,6 +66,8 @@ class Problem(ipopt.problem):
     constr_viol : float
     output_folder : str
         name of the folder inside Results where the output is saved (default Output)
+    exact_hess : bool
+        use exact Hessian or the authomatic one (default False)
     debug : str
         (not implemnted yet)
         
@@ -76,7 +78,7 @@ class Problem(ipopt.problem):
     """
     
     def __init__(self,Z,N=0,rho=None, lb=0.1,ub=10., h=0.1, n_type="p", data=[], basis=ShellModelBasis(),\
-        max_iter=2000, rel_tol=1e-3, constr_viol=1e-3, output_folder="Output", debug='n'):
+        max_iter=2000, rel_tol=1e-3, constr_viol=1e-3, output_folder="Output", exact_hess = False, debug='n'):
         
         # Basic info.
         self.N = N
@@ -134,6 +136,7 @@ class Problem(ipopt.problem):
         if len(self.output_folder)>0 and not os.path.exists(self.output_folder):
             os.makedirs(self.output_folder)
         
+        #self.exact_hess = exact_hess
         self.debug = True if debug=='y' else False
         #self.dbg_file = open(self.output_folder+"/debug.dat", 'w')
         
@@ -150,7 +153,7 @@ class Problem(ipopt.problem):
         self.datafile = self.output_folder + "/data"
         
         # Initialize ipopt
-        self._setUp(max_iter,rel_tol,constr_viol)
+        self._setIpopt(max_iter,rel_tol,constr_viol,exact_hess)
         
         
     
@@ -383,19 +386,22 @@ class Problem(ipopt.problem):
                    
                    
                    
-      
-    def _setUp(self,max_iter,rel_tol,constr_viol):      
+    """
+    Set ipopt parameters. Call ipopt.Problem constructor
+    """
+    def _setIpopt(self,max_iter,rel_tol,constr_viol, exact_hess=False):      
         # Options
         self.max_iter = max_iter
         self.rel_tol = rel_tol
         self.constr_viol = constr_viol
+        self.exact_hess = exact_hess
         # Calling ipopt.problem constructor
         ub_x = np.ones(self.n_variables)
         lb_x = -1. * ub_x
         con = self._getConstraintsValue()
         super().__init__(n=self.n_variables, m=self.n_constr, lb=lb_x, ub=ub_x, cl=con, cu=con)
         # Set options
-        self.setSolverOptions()
+        self.setSolverOptions(exact_hess)
         
         
         
@@ -468,15 +474,13 @@ class Problem(ipopt.problem):
         st = np.zeros( shape=(self.n_orbitals, self.n_points) )
         self.orbital_set.reset()
         for j, oo in enumerate(self.orbital_set):
-            #print (oo.name)
-            # print (j, str(oo))
             wf = HO_3D( oo.n, oo.l, self.nu)   # R(r) (=u(r)/r)
             # f(r) = u(r)/r / sqrt(4 pi rho(r) )
             st[j,:] = wf(self.grid)/np.sqrt( 4.*np.pi*self.tab_rho )
         return np.ndarray.flatten(st)
     
     
-    def setSolverOptions(self):
+    def setSolverOptions(self, exact_hess):
         """
         Solver options: relative tolerance on the objective function;
         absolute tolerance on the violation of constraints;
@@ -489,8 +493,8 @@ class Problem(ipopt.problem):
         self.addOption(b'constr_viol_tol', self.constr_viol)
         self.addOption(b"output_file", b"ipopt.out")
         self.addOption(b"hessian_constant", b"no")
-        self.addOption(b"hessian_approximation", b"exact")
-        #self.addOption(b'hessian_approximation', b'limited-memory')
+        self.addOption(b"hessian_approximation", b"exact") if exact_hess \
+            else self.addOption(b'hessian_approximation', b'limited-memory')
         
         
         
