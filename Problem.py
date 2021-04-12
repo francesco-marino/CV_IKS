@@ -78,7 +78,7 @@ class Problem(ipopt.problem):
     """
     
     def __init__(self,Z,N=0,rho=None, lb=0.1,ub=10., h=0.1, n_type="p", data=[], basis=ShellModelBasis(),\
-        max_iter=2000, rel_tol=1e-3, constr_viol=1e-3, output_folder="Output", exact_hess = False, debug='n'):
+        max_iter=2000, rel_tol=1e-3, constr_viol=1e-3, output_folder="Output", exact_hess=False, debug='n'):
         
         # Basic info.
         self.N = N
@@ -120,7 +120,7 @@ class Problem(ipopt.problem):
         
         # Density and its derivatives
         self.data = data
-        self.rho = rho if rho!=None else self.getRhoFromData( data[0], data[1] )
+        self.rho = rho if rho is not None else self.getRhoFromData( data[0], data[1] )
         # Tabulate rho and its derivatives
         self.tab_rho = self.rho(self.grid)
         self.d1_rho  = self.d_dx( self.tab_rho)
@@ -231,10 +231,26 @@ class Problem(ipopt.problem):
         for q in range(self.n_orbitals):
             deg = self.orbital_set[q].occupation
             rhs = 2.*( self.C0[q,:]*x[q,:] + self.C1*d1x[q,:] + self.C2*d2x[q,:] )  
-            # HERE
             grad[q,:] = (-T)* deg * rhs * self.h
         # Reshape into 1d array
         return np.ndarray.flatten(grad)
+    
+    
+    
+    """
+    Second derivatives of the kinetic energy
+    """
+    def secondDer(self, x):
+        x = np.reshape(x, (self.n_orbitals,self.n_points) )
+        der2 = np.zeros_like(x)
+        d1x, d2x = self._deriv(x)
+        # Same q, same r
+        for q in range(self.n_orbitals):
+            deg = self.orbital_set[q].occupation
+            rhs = 2. * (self.C0[q,:] - 2.*self.C2/self.h**2 )
+            der2[q,:] = (-T)* deg * rhs * self.h
+        return der2
+        
     
     
     
@@ -309,9 +325,21 @@ class Problem(ipopt.problem):
     def hessianstructure(self):
         # Hessian -> (q, p, q', p')
         hess = np.zeros( (self.n_orbitals,self.n_points, self.n_orbitals,self.n_points) )
-        # Obj. and density constr. contributions ( q = q' )
+        # Obj. and density constr. contributions ( q=q')
         for q in range(self.n_orbitals):
+            # Diagonal (p=p') part
             np.fill_diagonal( hess[q,:,q,:], np.ones(self.n_points) )
+            
+            # Off-diagonal
+            # p'=p+1     TODO use "upper diagonal" function os something like that 
+            for p in range(0,self.n_points-1):
+                hess[q, p, q, p+1] = 1.
+            """
+            # p'=p-1     TODO do we need this? hess is a triangular matrix
+            for p in range(1,self.n_points):
+                hess[q, p, q, p-1] = 1.
+            """
+            
         # Orthogonality
         for (i,j) in self.pairs:
             if i!=j:            # Add off-diagonal ortho. terms
@@ -321,25 +349,59 @@ class Problem(ipopt.problem):
         return np.nonzero( hess )
         
     
+    """
+    Hessian of the total Lagrange function (including multipliers*constraints)
     
+    Parameters
+    ----------
+    x: np.array(self.n_variables)
+        current value of the rescaled orbitals f_j     
+    lagrange:
+        array of all the Lagrange multipliers
+    obj_factor: float
+        a numerical factor multiplying the objective function contribution
+        
+    """
     def hessian(self, x, lagrange, obj_factor):
         x = np.reshape(x, (self.n_orbitals,self.n_points) )
-        # Hessian -> [q, p, q', p']  (The Hessian is diagonal: p=p' always)
+        # Hessian -> [q, p, q', p']  
         hess = np.zeros( (self.n_orbitals,self.n_points, self.n_orbitals,self.n_points) )
         # Obj. and density constr. contributions ( q = q' )
         for q in range(self.n_orbitals):
             deg = self.orbital_set[q].occupation
-            # Objective function    HERE
-            rhs  = obj_factor * 2.*deg *(-T) * ( self.C0[q,:] -self.C1 + self.C2 ) *self.h
-            #rhs  = obj_factor * 2.*deg *(-T) * self.C0[q,:] *self.h
-            # Density constraint
-            rhs += lagrange[:self.n_points] * 2.*deg
-            np.fill_diagonal( hess[q,:,q,:], rhs )
+            # "Diagonal" (p=p') contributions to the Hessian
+            # Density constraint 
+            diag = 2.*deg * lagrange[:self.n_points]
+            # Objective function (diagonal part)
+            diag += obj_factor * deg*(-T) * 2. * (self.h*self.C0[q,:] - 2.*self.C2/self.h )
+            #diag += obj_factor * deg*(-T) * 2. * self.C0[q,:]
+            # Fill with the q=q, p=p' terms
+            np.fill_diagonal( hess[q,:,q,:], diag )
+            
+            
+            # Off-diagonal terms
+            plus =  self.C1 + 2./self.h * self.C2     # p' = p+1
+            rng = np.arange(self.n_points-1)
+            hess[q, rng, q, rng+1] = plus[:-1]* obj_factor * deg*(-T)
+            
+            """
+            minus= -self.C1 + 2./self.h * self.C2     # p' = p-1
+            rng = np.arange(1,self.n_points)
+            hess[q, rng, q, rng-1] = minus[1:]* obj_factor * deg*(-T)
+            """
+            """
+            for p in range(0,self.n_points-1):
+                hess[q, p, q, p+1] = plus[p] * obj_factor * deg*(-T)
+            for p in range(1,self.n_points):
+                hess[q, p, q, p-1] = minus[p]* obj_factor * deg*(-T)
+            """
+            
         # Orthonormality constraints
         for k, (i,j) in enumerate(self.pairs):
             delta = 2. if i==j else 1.
             # q=i, q'=j  (i>=j)  (No need to insert q=j,q'=i)      HERE
             rhs = lagrange[self.n_points+k] *delta * self.rho_r2 * self.h
+            # p = p'
             hess[i,:,j,:] += np.diag( rhs )
         # Reshape into 2-matrix
         hess = np.reshape( hess, (self.n_variables,self.n_variables) )
@@ -479,13 +541,12 @@ class Problem(ipopt.problem):
             st[j,:] = wf(self.grid)/np.sqrt( 4.*np.pi*self.tab_rho )
         return np.ndarray.flatten(st)
     
-    
+    """
+    Solver options: relative tolerance on the objective function;
+    absolute tolerance on the violation of constraints;
+    maximum number of iterations
+    """
     def setSolverOptions(self, exact_hess):
-        """
-        Solver options: relative tolerance on the objective function;
-        absolute tolerance on the violation of constraints;
-        maximum number of iterations
-        """
         # Watch out! Put b (binary) in front of option strings    
         self.addOption(b'mu_strategy', b'adaptive')
         self.addOption(b'max_iter', self.max_iter)
