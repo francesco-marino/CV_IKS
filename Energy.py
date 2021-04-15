@@ -54,7 +54,8 @@ class Energy(object):
     """
     
     def __init__(self, problem=None, rho=None, v=None, grad_rho=None, output="Output",\
-                 param_step=0.1, r_step=0.1, R_min=0.01, R_max=10., integrator=integrate.simpson):
+                 param_step=0.1, r_step=0.1, R_min=0.01, R_max=10., integrator=integrate.simpson,\
+                 scaling="all", initial_rho=None):
         
         self.dt = param_step
         self.dr = r_step
@@ -102,10 +103,13 @@ class Energy(object):
             
         #saving output directory
         self.output = output
+        #saving integration method
         self.integrator = integrator
+        
+        #defining normalization
+        self.N = 4*np.pi*self.integrator(self.R**2 * self.rho, self.R)
       
         
-    
     """
     Return system energy w/ Q, K, L scaling
     
@@ -126,7 +130,7 @@ class Energy(object):
             self.vQ = self._evalPotential(vQ, v_grid, 'q')
             self.vL = self._evalPotential(vL, v_grid, 'l')
             self.vZ = self._evalPotential(vZ, v_grid, 'z')
-            
+
             #getting density and its gradient in self.R
             self.rho = self.rho_fun(self.R)
             self.grad_rho = self.d_dx(self.rho)
@@ -136,7 +140,7 @@ class Energy(object):
             self.vQ, self.vL, self.vZ = self.Input_Potential()
 
             
-        #print("v Q",v_int_Q, "\n\n L", v_int_L, "\n\n Drho", Drho_int, "\n\n Z", v_int_Z)
+        #print("v Q",self.vQ, "\n\n L", self.vL, "\n\n Z", self.vZ, "\n\n Drho", self.grad_rho)
         E = self.calcIntegral()
         
         self._saveE(E)
@@ -145,76 +149,10 @@ class Energy(object):
     
     
     """
-    to do
-    computing parametric potential given from input
-    """
-    
-    def Input_Potential(self): 
-        
-        vQ=[]; vL=[]; vZ=[]
-        
-        #defining normalization
-        self.N = 4*np.pi*self.integrator(self.R**2 * self.rho, self.R)
-        
-        for t in self.T:
-            # Q
-            row = self.v_fun(self.R, self.rho_fun, self.N, t)
-            vQ.append(row)
-            # L
-            x = self.R * t 
-            row = self.v_fun(x, self.rho_fun, self.N, t**3)
-            row = row / t
-            vL.append(row)
-            # Z
-            x = self.R * t**(1./3.)
-            row = self.v_fun(x, self.rho_fun, self.N, t**2)
-            vZ.append(row)
-        
-        return np.array(vQ), np.array(vL), np.array(vZ)
-        
-        
-    """
-    Evaluate potential within the integration grid
+    Parametric potentials from IKS
     
     Parameters
     ----------
-    v: float []
-        matrix of potentials
-    
-    Returns
-    ----------
-    v: float []
-        potential matrix evaluated in the integration radii 
-        
-    """
-    
-    def _evalPotential(self, v, v_grid, scaling):
-        
-        v_int=[]
-            
-        for j in range(len(self.T)):
-            t = self.T[j]
-            
-            if scaling == "q":
-                grid = v_grid
-                x = self.R
-            elif scaling == "l":
-                grid = v_grid*t
-                x = self.R * t
-            elif scaling == "z":
-                grid = v_grid*t**(1./3.)
-                x = self.R * t**(1./3.)
-            
-            #get continuous functions of potential
-            v_fun = interpolate(grid, np.array(v)[j,:])
-            #potential evaluation in the integral grid
-            v_int.append(v_fun(x))
-          
-        return v_int
-    
-    
-    """
-    Parametric potentials from IKS
     
     Returns
     ----------
@@ -224,17 +162,17 @@ class Energy(object):
         potential matrix for L scaling
     vZ: float []
         potential matrix for Z scaling
+    solv.grid: float []
+        grid in which potentials are evaluated
         
     """
     
     def IKS_Potential(self):
-        v=[]
-        self.status=[]
-        
-        t_col=np.reshape(self.T,newshape=(-1,1))
-        #print("\n t_col \t", np.shape(t_col))
         
         for scaling in ["q", "lambda", "z"]:
+            v=[]
+            self.status=[]
+            
             for t in self.T: 
                 
                 if scaling == "q":
@@ -251,7 +189,7 @@ class Energy(object):
                       " scaling and parameter t: \t", t, '\n')
                 
                 #setting output directory for each minimization
-                file = self.output + "/" + scaling + "minimization_t=" + str(t)
+                file = self.output + "/" + scaling + "_minimization_t=" + str('%.1f'%t)
                 
                 #setting problem density with (r,rho_t(r))
                 self.problem.setDensity(data=(x, Rho), output_folder=file)
@@ -260,7 +198,7 @@ class Energy(object):
                 res, info = self.problem.solve()
                 x = res['x']
                 
-                st = "Minimization with t = "+ str(t) + " : " + str(res['status'])
+                st = "Minimization with t = "+ str('%.1f'%t) + " : " + str(res['status'])
                 self.status.append(st)
                 
                 #computing potentials
@@ -273,13 +211,76 @@ class Energy(object):
                 vQ = v
             elif scaling == "lambda":
                 self.status_L = self.status
-                vL = v/t_col
+                vL = v
             elif scaling == "z":
                 self.status_Z = self.status
                 vZ = v
                     
         return vQ, vL, vZ, solv.grid 
-        #NB: they are not really evaluated in solv_grid, see _evalPotential
+        # they are all evaluated in solv.grid
+        
+        
+    """
+    Evaluate potential within the integration grid
+    
+    Parameters
+    ----------
+    v: float []
+        matrix of potentials
+    
+    Returns
+    ----------
+    v: float []
+        matrix of potentials evaluated in the integration radii 
+        
+    """
+    
+    def _evalPotential(self, v, v_grid, scaling):
+        
+        v_int=[]
+            
+        for j in range(len(self.T)):
+            t = self.T[j]
+            
+            if scaling == "q":
+                x = self.R
+            elif scaling == "l":
+                x = self.R * t
+            elif scaling == "z":
+                x = self.R * t**(1./3.)
+            
+            #get continuous functions of potential (one row of the matrix)
+            v_fun = interpolate(v_grid, np.array(v)[j,:])
+            #potential evaluation in the integral grid
+            v_int.append(v_fun(x))
+          
+        return v_int
+    
+    
+    """
+    to do
+    computing parametric potential given from input
+    """
+    
+    def Input_Potential(self): 
+        
+        vQ=[]; vL=[]; vZ=[]
+        
+        for t in self.T:
+            # Q
+            row = self.v_fun(self.R, self.rho_fun, self.N, t)
+            vQ.append(row)
+            # L
+            x = self.R * t 
+            row = self.v_fun(x, self.rho_fun, self.N, t**3)
+            row = row
+            vL.append(row)
+            # Z
+            x = self.R * t**(1./3.)
+            row = self.v_fun(x, self.rho_fun, self.N, t**2)
+            vZ.append(row)
+        
+        return np.array(vQ), np.array(vL), np.array(vZ)
     
     
     """
@@ -289,16 +290,6 @@ class Energy(object):
     
     Parameters
     ----------
-    rho: float []
-        density  
-    Drho: float []
-        gradient density 
-    vQ: float []
-        potential matrix for Q scaling
-    vL: float []
-        potential matrix for L scaling
-    vZ: float []
-        potential matrix for Z scaling
     
     Returns
     ----------
@@ -327,7 +318,7 @@ class Energy(object):
             # L
             l = self.T[j]
             x = self.R * l
-            f_L = self.vL[j,:] * 4 * np.pi * x**2 * \
+            f_L = self.vL[j,:] / l * 4 * np.pi * x**2 * \
                 (3 * self.rho_fun(x) / self.N + x * self.grad_rho_fun(x) / self.N)
             I = self.integrator(f_L, x) #integrating over r
             I_r.append(I)
