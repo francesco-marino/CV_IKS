@@ -53,7 +53,7 @@ class Energy(object):
     
     """
     
-    def __init__(self, problem=None, rho=None, v=None, grad_rho=None, output="Output",\
+    def __init__(self, problem=None, rho=None, v=None, grad_rho=None, data=[], output="Output",\
                  param_step=0.1, r_step=0.1, R_min=0.01, R_max=10., integrator=integrate.simpson,\
                  scaling="all", initial_rho=None):
         
@@ -64,7 +64,7 @@ class Energy(object):
         
         self.d_dx  = FinDiff(0, self.dr, 1, acc=4)
         
-        assert not(problem==None and (rho==None or v==None)) #is ValueError better?
+        assert not(problem==None and ((rho==None and len(data)==0) or v==None)) #is ValueError better?
         
         #if both methods are present, IKS problem comes first
         if (problem!=None):
@@ -82,23 +82,30 @@ class Energy(object):
             self.method = "IKS"
             
         else: 
-            #Input-given density and potential
-            self.rho_fun = rho
-            self.rho = self.rho_fun(self.R)
-            self.v_fun = v
-            
-            if (grad_rho!=None):
-                self.grad_rho_fun = grad_rho
-                self.grad_rho = grad_rho(self.R)
+            if(rho!=None):
+                #Input-given density (as a function)
+                self.rho_fun = rho
                 
-            else: 
-                #if none is given, computing the gradient
-                self._setGradient()
+                if (grad_rho!=None):
+                    self.grad_rho_fun = grad_rho
+                    self.grad_rho = grad_rho(self.R)
+                    
+                else: 
+                    #if none is given, computing the gradient
+                    self.grad_rho = self.d_dx(self.rho)
+                    self.grad_rho_fun = interpolate(self.R, self.grad_rho)
+            else:
+                #Input-given density (as an array) 
+                self.rho_fun, self.grad_rho_fun = interpolate(data[0], data[1], der=True)
+                self.grad_rho = self.grad_rho_fun(self.R)
             
+            self.rho = self.rho_fun(self.R)
+            #Input given potential
+            self.v_fun = v
+                
             if len(output)>0 and not os.path.exists("Results/" + output):
                 os.makedirs("Results/" + output)
                 
-            
             self.method = "Rho and v from input"
             
         #saving output directory
@@ -342,15 +349,6 @@ class Energy(object):
         return I_Q, I_L, I_Z
     
     
-    """
-    to do 
-    setting the density gradient function
-    """
-    def _setGradient(self):
-        
-        self.grad_rho = self.d_dx(self.rho)
-        self.grad_rho_fun = interpolate(self.R, self.grad_rho)
-            
         
     """
     Printing energy on file
@@ -385,7 +383,7 @@ class Energy(object):
 Interpolation of a function f in its (discrete) domain r
 """
     
-def interpolate(r, f):
+def interpolate(r, f, der=False):
     from scipy import interpolate
     
     r=np.array(r); f=np.array(f);
@@ -393,9 +391,13 @@ def interpolate(r, f):
      
     tck  = interpolate.splrep(r, f)
     ff = lambda x: interpolate.splev(x, tck )
+    
+    if(der == False):
+        return ff    
+    else: 
+        d1 = lambda x: interpolate.splev(x, tck, der=1)
         
-    return ff    
-
+        return ff, d1
 #########################################################
 ########################TEST#############################
 #########################################################
