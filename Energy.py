@@ -1,0 +1,494 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Sat Mar 27 15:34:21 2021
+
+@author: alberto
+"""
+
+import numpy as np
+import os
+from findiff import FinDiff
+from scipy import integrate
+import matplotlib.pyplot as plt
+
+from Problem import Problem, quickLoad
+from Solver import Solver
+
+"""
+TO DO/CHECK LIST: 
+    
+--- think about: domain of the energy since IKS potentials nearby r=0 are not trustworthy
+
+--- give accessibility: choose which scaling one wants to do (could be awful to read)\
+                        whether to save Energy value on file
+
+--- check where rho==0 (see line 74) (ex HO_20_particles_coupled_basis), it gives problem somewhere
+
+--- split computation of Q/Lambda/Z path? better readable 
+
+--- merge energy evaluation for different R_max into the class (as in Test_case0/1/2) (??)
+
+ERROR: IKS does not converge for slightly different rho
+"""
+# GAIDUK APPROACH 
+
+
+
+
+
+class Energy(object):
+    """
+    A class aimed at computing energies from a given potential and density or from an IKS problem.
+    
+    Parameters
+    ----------
+    problem : Problem
+        class representing the IKS problem (see Problem) (default None)
+    rho:
+        function representing a target density (default None)
+    v: function
+        potential as a function of rho (default None)
+    output : str
+        folder directory inside Results/ in which the output is saved (default: Output)
+    param_step : float
+        step for the parametric intergal (default: 0.1)
+    r_step : float 
+        step for the radial integral (default: 0.1)
+    R_min : float
+        lower bound of the radial integral (default: 0.01)
+    R_max : float
+        upper bound of the radial integral (default: 10.)
+    integrator: scipy.integrate
+        integration method (default scipy.integrate.Simpson)
+    scaling: str
+        transformation(s) of the density in the parametric integral (options 'q', 'l', 'z', 'all') (default "all") 
+    initial_rho:
+        
+    """
+    
+    def __init__(self, problem=None, rho=None, v=None, grad_rho=None, data=[], output="Output",\
+                 param_step=0.1, r_step=0.1, R_min=0.01, R_max=10., integrator=integrate.simpson,\
+                 scaling="all", initial_rho=None):
+        
+        self.dt = param_step
+        self.dr = r_step
+        self.T = np.arange(self.dt, 1. + self.dt, self.dt)   #parameter value list
+        self.R = np.arange(R_min, R_max + self.dr, self.dr)  #radius value list
+        
+        self.d_dx  = FinDiff(0, self.dr, 1, acc=4)
+        
+        assert not(problem==None and ((rho==None and len(data)==0) or v==None)) #is ValueError better?
+        #assert (problem is not None and (rho is not None and len(data)>0) )
+        
+        #if both methods are present, IKS problem comes first
+        
+        #IKS problem
+        if (problem is not None):
+                    
+            #------------ADD control over rho==0!! (np.any / np.all)
+            self.rho_grid, self.rho = quickLoad(problem.file) \
+                if problem.data==[] else problem.data
+            #print(self.rho_grid, self.rho)
+            
+            self.rho_fun = interpolate(self.rho_grid, self.rho)
+            
+            #saving problem and method
+            self.problem = problem
+            self.method = "IKS"
+        
+            
+        # using provided density and potential
+        else:
+            
+            # Input density function
+            if(rho!=None):
+                self.rho_fun = rho
+                
+                # provided density gradient
+                if (grad_rho!=None):
+                    self.grad_rho_fun = grad_rho
+                    self.grad_rho = grad_rho(self.R)
+                  
+                # numerical gradient
+                else: 
+                    #if none is given, computing the gradient
+                    self.grad_rho = self.d_dx(self.rho)
+                    self.grad_rho_fun = interpolate(self.R, self.grad_rho)
+            
+            #Input-given density (as an array)
+            else:          
+                self.rho_fun, self.grad_rho_fun = interpolate(data[0], data[1], der=True)
+                self.grad_rho = self.grad_rho_fun(self.R)
+            
+            
+            self.rho = self.rho_fun(self.R)
+            #Input given potential
+            self.v_fun = v
+                
+            if len(output)>0 and not os.path.exists("Results/" + output):
+                os.makedirs("Results/" + output)
+                
+            self.method = "Rho and v from input"
+            
+        #saving output directory
+        self.output = output
+        #saving integration method
+        self.integrator = integrator
+        
+        #defining normalization
+        self.N = 4*np.pi*self.integrator(self.R**2 * self.rho, self.R)
+      
+        
+    """
+    Return system energy w/ Q, K, L scaling
+    
+    Returns
+    --------
+    E : float []
+        energy array from all scalings
+        
+    """
+    
+    # TODO change name: too many solvers around!
+    def solver(self):
+        
+        # computing potentials with IKS
+        if (self.method == "IKS"):
+            
+            vQ, vL, vZ, v_grid = self.IKS_Potential()
+            
+            #evaluate potentials in self.R (needed in the integral)
+            self.vQ = self._evalPotential(vQ, v_grid, 'q')
+            self.vL = self._evalPotential(vL, v_grid, 'l')
+            self.vZ = self._evalPotential(vZ, v_grid, 'z')
+
+            #getting density and its gradient in self.R
+            self.rho = self.rho_fun(self.R)
+            self.grad_rho = self.d_dx(self.rho)
+        
+        # computing potentials given from input
+        else:         
+            # work in progress here?
+            self.vQ, self.vL, self.vZ = self.Input_Potential()
+
+            
+        #print("v Q",self.vQ, "\n\n L", self.vL, "\n\n Z", self.vZ, "\n\n Drho", self.grad_rho)
+        
+        # Compute the full (parametric + spatial) integral
+        E = self.calcIntegral()
+        # Save results to file
+        self._saveE(E)
+    
+        return E
+    
+    
+    """
+    Parametric potentials from IKS.
+    Return IKS potentials for different values of the "t" parameter.
+    
+    Parameters
+    ----------
+    
+    Returns
+    ----------
+    vQ: float []
+        potential matrix for Q scaling
+    vL: float []
+        potential matrix for L scaling
+    vZ: float []
+        potential matrix for Z scaling
+    solv.grid: np.array
+        grid in which potentials are evaluated
+        
+    """
+    
+    def IKS_Potential(self):
+        
+        for scaling in ["q", "l", "z"]:
+            v=[]
+            self.status=[]
+            
+            # Iterate over t
+            for t in self.T: 
+                
+                # x, rho: transformed coordinates and density
+                if scaling == "q":
+                    x = self.rho_grid
+                    Rho = self.rho * t
+                # Maybe call it "l" for coherence?
+                elif scaling == "l":
+                    x = self.rho_grid * t
+                    Rho = self.rho * t**3
+                elif scaling == "z":
+                    x = self.rho_grid * t**(1./3.)
+                    Rho = self.rho * t**2
+                
+                print("\n\nComputing potential with ", scaling, \
+                      " scaling and parameter t: \t", t, '\n')
+                
+                #setting output directory for each minimization
+                file = self.output + "/" + scaling + "_minimization_t=" + str('%.1f'%t)
+                
+                #setting problem density with (r,rho_t(r))
+                self.problem.setDensity(data=(x, Rho), output_folder=file)
+                
+                #computing eigenfunctions
+                res, info = self.problem.solve()
+                #x = res['x']
+                st = "Minimization with t = "+ str('%.1f'%t) + " : " + str(res['status'])
+                self.status.append(st)
+                
+                #computing potentials
+                #solv = Solver(self.problem, x)
+                solv = Solver(self.problem)
+                v.append( solv.getPotential() )
+            
+            # saving potentials
+            if scaling == "q":
+                self.status_Q = self.status
+                vQ = v
+            elif scaling == "l":
+                self.status_L = self.status
+                vL = v
+            elif scaling == "z":
+                self.status_Z = self.status
+                vZ = v
+        
+        # they are all evaluated in solv.grid
+        return vQ, vL, vZ, solv.grid 
+        
+        
+        
+    """
+    Evaluate potential on a specified integration grid
+    
+    Parameters
+    ----------
+    v: float []
+        matrix of potentials
+    
+    Returns
+    ----------
+    v: float []
+        matrix of potentials evaluated in the integration radii 
+        
+    """
+    
+    def _evalPotential(self, v, v_grid, scaling="l"):
+        
+        # TODO change v and v_int into numpy matrices
+        v_int=[]
+            
+        #for j in range(len(self.T)):
+        for j, t in enumerate(self.T):
+            #t = self.T[j]
+            if scaling == "q":
+                x = self.R
+            elif scaling == "l":
+                x = self.R * t
+            elif scaling == "z":
+                x = self.R * t**(1./3.)
+            
+            #get continuous functions of potential (one row of the matrix)
+            v_fun = interpolate(v_grid, np.array(v)[j,:])
+            #potential evaluation in the integral grid
+            v_int.append( v_fun(x) )
+          
+        return v_int
+    
+    
+    """
+    to do
+    computing parametric potential given from input
+    """
+    
+    def Input_Potential(self): 
+        
+        vQ=[]; vL=[]; vZ=[]
+        
+        for t in self.T:
+            # Q
+            row = self.v_fun(self.R, self.rho_fun, self.N, t)
+            vQ.append(row)
+            # L
+            x = self.R * t 
+            row = self.v_fun(x, self.rho_fun, self.N, t**3)
+            row = row
+            vL.append(row)
+            # Z
+            x = self.R * t**(1./3.)
+            row = self.v_fun(x, self.rho_fun, self.N, t**2)
+            vZ.append(row)
+        
+        return np.array(vQ), np.array(vL), np.array(vZ)
+    
+    
+    """
+    to do 
+    
+    Integral calculation for Q,L,Z-scaling
+    
+    Parameters
+    ----------
+    
+    Returns
+    ----------
+    I_Q: float 
+        energy value for Q scaling
+    I_L: float 
+        energy value for L scaling
+    I_Z: float 
+        energy value for Z scaling
+        
+    """
+    
+    def calcIntegral(self):
+        # print("INTEGRAL, SHAPES: \n rho \t", np.shape(self.rho), "\n Drho \t", \
+        # np.shape(self.grad_rho), "\n vQ \t", np.shape(self.vQ), \
+        # "\n vL \t", np.shape(self.vL), "\n vZ \t", np.shape(self.vZ))
+
+        #Q integral
+        I = self.integrator(self.vQ, self.T, axis=0) #integral over t
+        f_Q = I * 4 *np.pi * self.R**2 * self.rho / self.N
+        I_Q = self.integrator(f_Q, self.R) #integral over r
+        
+        #LAMBDA integral
+        I_r= np.zeros_like(self.T)
+        #for j in range(len(self.T)):
+        for j, l in enumerate(self.T):
+            # L
+            # l = self.T[j]
+            x = self.R * l
+            f_L = self.vL[j,:] / l * 4 * np.pi * x**2 * \
+                (3 * self.rho_fun(x) / self.N + x * self.grad_rho_fun(x) / self.N)
+            #integrating over r
+            I = self.integrator(f_L, x) 
+            I_r[j] = I
+            #I_r.append(I)
+        
+        #integrating over t
+        I_L = self.integrator(I_r, self.T) 
+        
+        
+        #Z integral
+        I_r=[]
+        for j in range(len(self.T)):
+            # Z
+            z = self.T[j]
+            x = self.R * z**(1./3.) 
+            f_Z = self.vZ[j,:] * 4 * np.pi * x**2 * \
+                (2 * self.rho_fun(x) / self.N + x/3. * self.grad_rho_fun(x) / self.N)
+            I = self.integrator(f_Z, x) #integrating over r
+            I_r.append(I)
+        
+        I_Z = self.integrator(I_r, self.T) #integrating over t
+        
+        
+        return I_Q, I_L, I_Z
+    
+    
+        
+    """
+    Printing energy to file
+    
+    Parameters
+    ----------
+    E : float []
+        energy array from all scalings
+        
+    """
+    
+    def _saveE(self, E):
+        self.E_file = "Results/" + self.output + "/E.out"
+        with open(self.E_file, 'w') as fo:
+            if(self.method == "IKS"):
+                status = np.reshape(self.status, newshape=(-1,1))
+                fo.write(str(status))
+            fo.write("\n \n ENERGIES: \n Q-path:\t" + str(E[0]) + "\n\n")
+            fo.write("\n Lambda-path:\t" + str(E[1]) + "\n\n")
+            fo.write("\n Z-path:\t" + str(E[2]) + "\n\n")
+    
+    
+    """
+    Returnig the potential
+    """
+    
+    def _getPot(self):
+        return self.R, self.vQ, self.vL, self.vZ
+    
+    
+"""
+Interpolation of a function f in its (discrete) domain r
+"""
+    
+def interpolate(r, f, der=False):
+    from scipy import interpolate
+    
+    r=np.array(r); f=np.array(f);
+    assert( len(r)==len(f) )
+     
+    tck  = interpolate.splrep(r, f)
+    ff = lambda x: interpolate.splev(x, tck )
+    
+    if(der == False):
+        return ff    
+    else: 
+        d1 = lambda x: interpolate.splev(x, tck, der=1)
+        
+        return ff, d1
+    
+    
+    
+#########################################################
+########################TEST#############################
+#########################################################
+
+if __name__ == "__main__":
+    
+    # problem_IKS = Problem(Z=20,N=20, max_iter=10, rel_tol=1e-4, constr_viol=1e-4, data=quickLoad("Densities/SkXDensityCa40p.dat"))
+    #problem_IKS = Problem(Z=20,N=20, max_iter=4000, rel_tol=1e-4, constr_viol=1e-4, data=quickLoad("Densities/rho_HO_20_particles_coupled_basis.dat"))
+    #problem_IKS = Problem(Z=82,N=126, max_iter=4000, rel_tol=1e-4, constr_viol=1e-4, data=quickLoad("Densities/SOGDensityPb208p.dat"))
+    
+    #energy = Energy(problem_IKS, "Ca40SkX_En")
+    #energy = Energy(problem_IKS, "HO20coupled")
+    #energy = Energy(problem_IKS, "Pb208SOG_En")
+    
+    print("\n \n TEST 1: ------------ \n \n")
+    #TEST 1
+    rho = lambda r : np.ones_like(r)
+    grad_rho = lambda r : np.zeros_like(r)
+    # potential = lambda rho : rho
+    def potential(r, rho, N=1, t=1):
+        v = t * rho(r) / N
+
+        return v
+    
+    # energy = Energy(rho=rho, v=potential, grad_rho=grad_rho, param_step=0.001, r_step=0.001, R_min=0., R_max=10.)
+    energy = Energy(rho=rho, v=potential, param_step=0.001, r_step=0.001, R_min=0., R_max=10.)
+    
+    E = energy.solver()
+    print("Energies: \n",\
+          "\n\nEnergies with trapezoids: ", E[0],\
+          "\n\nEnergies from simpson: ", E[1])
+        
+    
+    print("\n \n TEST 2: ------------ \n \n")
+    #TEST 2   
+    rho = lambda r : r
+    grad_rho = lambda r : np.ones_like(r)
+    # potential = lambda rho : rho**2
+    # potential = lambda rho,r : rho(r)**2
+    
+    def potential(r, rho, N=1, t=1):
+        v = (t * rho(r) / N) **2
+
+        return v
+        
+    # energy = Energy(rho=rho, v=potential, grad_rho=grad_rho, param_step=0.001, r_step=0.01, R_min=0., R_max=5.)
+    energy = Energy(rho=rho, v=potential, param_step=0.001, r_step=0.001, R_min=0., R_max=5.)
+    
+    
+    E = energy.solver()
+    print("Energies: \n",\
+          "\n\nEnergies with trapezoids: ", E[0],\
+          "\n\nEnergies from simpson: ", E[1])
