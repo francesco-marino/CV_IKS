@@ -11,6 +11,7 @@ import os
 
 import ipopt
 from findiff import FinDiff
+from scipy import integrate
 
 from Orbitals import ShellModelBasis,  OrbitalSet, getOrbitalSet
 from Constants import T, nuclearOmega, nuclearNu
@@ -20,7 +21,7 @@ from EigenFunctions import HO_3D
 
 
 
-class Problem(ipopt.problem):
+class Problem_mod2(ipopt.problem):
     """
     A class used to represent a nuclear Inverse Kohn-Sham (IKS) problem.
     
@@ -66,6 +67,8 @@ class Problem(ipopt.problem):
     constr_viol : float
     output_folder : str
         name of the folder inside Results where the output is saved (default Output)
+    exact_hess : bool
+        use exact Hessian or the authomatic one (default False)
     debug : str
         (not implemnted yet)
         
@@ -76,7 +79,7 @@ class Problem(ipopt.problem):
     """
     
     def __init__(self,Z,N=0,rho=None, lb=0.1,ub=10., h=0.1, n_type="p", data=[], basis=ShellModelBasis(),\
-        max_iter=2000, rel_tol=1e-3, constr_viol=1e-3, output_folder="Output", debug='n'):
+        max_iter=2000, rel_tol=1e-3, constr_viol=1e-3, output_folder="Output", exact_hess=False, debug='n'):
         
         # Basic info.
         self.N = N
@@ -118,12 +121,12 @@ class Problem(ipopt.problem):
         
         # Density and its derivatives
         self.data = data
-        self.rho = rho if rho!=None else self.getRhoFromData( data[0], data[1] )
+        self.rho = rho if rho is not None else self.getRhoFromData( data[0], data[1] )
         # Tabulate rho and its derivatives
         self.tab_rho = self.rho(self.grid)
         self.d1_rho  = self.d_dx( self.tab_rho)
         self.d2_rho  = self.d_d2x(self.tab_rho)   
-        # Integration factor: 4 pi r^2 rho
+        # Integration factor: 4 pi r^2 rho^2 
         self.rho_r2  = 4.*np.pi * self.tab_rho * np.power(self.grid, 2)       
         # C0,C1,C2
         self.C0, self.C1, self.C2 = self._getCFunctions()
@@ -134,6 +137,7 @@ class Problem(ipopt.problem):
         if len(self.output_folder)>0 and not os.path.exists(self.output_folder):
             os.makedirs(self.output_folder)
         
+        #self.exact_hess = exact_hess
         self.debug = True if debug=='y' else False
         #self.dbg_file = open(self.output_folder+"/debug.dat", 'w')
         
@@ -150,7 +154,7 @@ class Problem(ipopt.problem):
         self.datafile = self.output_folder + "/data"
         
         # Initialize ipopt
-        self._setUp(max_iter,rel_tol,constr_viol)
+        self._setIpopt(max_iter,rel_tol,constr_viol,exact_hess)
         
         
     
@@ -209,7 +213,9 @@ class Problem(ipopt.problem):
     def _integral_j(self, x, d1x, d2x, j):
         arr = x[j,:] * ( self.C0[j,:]*x[j,:] + self.C1*d1x[j,:] + self.C2*d2x[j,:] )
         # arr = self.C0[j,:] * x[j,:]**2  - self.C2 * d1x[j,:]**2
-        return np.sum( arr*self.h )
+    
+        int_arr = integrate.simpson(arr, dx=self.h)
+        return int_arr
     
     
         
@@ -228,10 +234,26 @@ class Problem(ipopt.problem):
         for q in range(self.n_orbitals):
             deg = self.orbital_set[q].occupation
             rhs = 2.*( self.C0[q,:]*x[q,:] + self.C1*d1x[q,:] + self.C2*d2x[q,:] )  
-            # HERE
             grad[q,:] = (-T)* deg * rhs * self.h
         # Reshape into 1d array
         return np.ndarray.flatten(grad)
+    
+    
+    
+    """
+    Second derivatives of the kinetic energy
+    """
+    def secondDer(self, x):
+        x = np.reshape(x, (self.n_orbitals,self.n_points) )
+        der2 = np.zeros_like(x)
+        d1x, d2x = self._deriv(x)
+        # Same q, same r
+        for q in range(self.n_orbitals):
+            deg = self.orbital_set[q].occupation
+            rhs = 2. * (self.C0[q,:] - 2.*self.C2/self.h**2 )
+            der2[q,:] = (-T)* deg * rhs * self.h
+        return der2
+        
     
     
     
@@ -252,7 +274,7 @@ class Problem(ipopt.problem):
         # <i|j> = int( 4 pi r^2 rho(r) f_i(r) f_j(r) )
         for k, (i,j) in enumerate(self.pairs):
             f_i = x[i,:]; f_j = x[j, :]
-            ortho[k] = np.sum( self.rho_r2 * f_i*f_j ) *self.h 
+            ortho[k] = integrate.simpson(self.rho_r2 * f_i*f_j , dx=self.h )
         return np.concatenate( (dens,ortho) )
         
     
@@ -306,9 +328,21 @@ class Problem(ipopt.problem):
     def hessianstructure(self):
         # Hessian -> (q, p, q', p')
         hess = np.zeros( (self.n_orbitals,self.n_points, self.n_orbitals,self.n_points) )
-        # Obj. and density constr. contributions ( q = q' )
+        # Obj. and density constr. contributions ( q=q')
         for q in range(self.n_orbitals):
+            # Diagonal (p=p') part
             np.fill_diagonal( hess[q,:,q,:], np.ones(self.n_points) )
+            
+            # Off-diagonal
+            # p'=p+1     TODO use "upper diagonal" function os something like that 
+            for p in range(0,self.n_points-1):
+                hess[q, p, q, p+1] = 1.
+            """
+            # p'=p-1     TODO do we need this? hess is a triangular matrix
+            for p in range(1,self.n_points):
+                hess[q, p, q, p-1] = 1.
+            """
+            
         # Orthogonality
         for (i,j) in self.pairs:
             if i!=j:            # Add off-diagonal ortho. terms
@@ -318,25 +352,59 @@ class Problem(ipopt.problem):
         return np.nonzero( hess )
         
     
+    """
+    Hessian of the total Lagrange function (including multipliers*constraints)
     
+    Parameters
+    ----------
+    x: np.array(self.n_variables)
+        current value of the rescaled orbitals f_j     
+    lagrange:
+        array of all the Lagrange multipliers
+    obj_factor: float
+        a numerical factor multiplying the objective function contribution
+        
+    """
     def hessian(self, x, lagrange, obj_factor):
         x = np.reshape(x, (self.n_orbitals,self.n_points) )
-        # Hessian -> [q, p, q', p']  (The Hessian is diagonal: p=p' always)
+        # Hessian -> [q, p, q', p']  
         hess = np.zeros( (self.n_orbitals,self.n_points, self.n_orbitals,self.n_points) )
         # Obj. and density constr. contributions ( q = q' )
         for q in range(self.n_orbitals):
             deg = self.orbital_set[q].occupation
-            # Objective function    HERE
-            # rhs  = obj_factor * 2.*deg *(-T) * ( self.C0[q,:] -self.C1 + self.C2 ) *self.h
-            rhs  = obj_factor * 2.*deg *(-T) * self.C0[q,:] *self.h
-            # Density constraint
-            rhs += lagrange[:self.n_points] * 2.*deg
-            np.fill_diagonal( hess[q,:,q,:], rhs )
+            # "Diagonal" (p=p') contributions to the Hessian
+            # Density constraint 
+            diag = 2.*deg * lagrange[:self.n_points]
+            # Objective function (diagonal part)
+            diag += obj_factor * deg*(-T) * 2. * (self.h*self.C0[q,:] - 2.*self.C2/self.h )
+            #diag += obj_factor * deg*(-T) * 2. * self.C0[q,:]
+            # Fill with the q=q, p=p' terms
+            np.fill_diagonal( hess[q,:,q,:], diag )
+            
+            
+            # Off-diagonal terms
+            plus = ( self.C1 + 2./self.h * self.C2 )  # p' = p+1
+            rng = np.arange(self.n_points-1)
+            hess[q, rng, q, rng+1] = plus[:-1]* obj_factor * deg*(-T)
+            
+            """
+            minus= -self.C1 + 2./self.h * self.C2     # p' = p-1
+            rng = np.arange(1,self.n_points)
+            hess[q, rng, q, rng-1] = minus[1:]* obj_factor * deg*(-T)
+            """
+            """
+            for p in range(0,self.n_points-1):
+                hess[q, p, q, p+1] = plus[p] * obj_factor * deg*(-T)
+            for p in range(1,self.n_points):
+                hess[q, p, q, p-1] = minus[p]* obj_factor * deg*(-T)
+            """
+            
         # Orthonormality constraints
         for k, (i,j) in enumerate(self.pairs):
             delta = 2. if i==j else 1.
             # q=i, q'=j  (i>=j)  (No need to insert q=j,q'=i)      HERE
             rhs = lagrange[self.n_points+k] *delta * self.rho_r2 * self.h
+            # p = p'
             hess[i,:,j,:] += np.diag( rhs )
         # Reshape into 2-matrix
         hess = np.reshape( hess, (self.n_variables,self.n_variables) )
@@ -383,19 +451,22 @@ class Problem(ipopt.problem):
                    
                    
                    
-      
-    def _setUp(self,max_iter,rel_tol,constr_viol):      
+    """
+    Set ipopt parameters. Call ipopt.Problem constructor
+    """
+    def _setIpopt(self,max_iter,rel_tol,constr_viol, exact_hess=False):      
         # Options
         self.max_iter = max_iter
         self.rel_tol = rel_tol
         self.constr_viol = constr_viol
+        self.exact_hess = exact_hess
         # Calling ipopt.problem constructor
         ub_x = np.ones(self.n_variables)
         lb_x = -1. * ub_x
         con = self._getConstraintsValue()
         super().__init__(n=self.n_variables, m=self.n_constr, lb=lb_x, ub=ub_x, cl=con, cu=con)
         # Set options
-        self.setSolverOptions()
+        self.setSolverOptions(exact_hess)
         
         
         
@@ -468,28 +539,26 @@ class Problem(ipopt.problem):
         st = np.zeros( shape=(self.n_orbitals, self.n_points) )
         self.orbital_set.reset()
         for j, oo in enumerate(self.orbital_set):
-            #print (oo.name)
-            # print (j, str(oo))
             wf = HO_3D( oo.n, oo.l, self.nu)   # R(r) (=u(r)/r)
             # f(r) = u(r)/r / sqrt(4 pi rho(r) )
             st[j,:] = wf(self.grid)/np.sqrt( 4.*np.pi*self.tab_rho )
         return np.ndarray.flatten(st)
     
-    
-    def setSolverOptions(self):
-        """
-        Solver options: relative tolerance on the objective function;
-        absolute tolerance on the violation of constraints;
-        maximum number of iterations
-        """
+    """
+    Solver options: relative tolerance on the objective function;
+    absolute tolerance on the violation of constraints;
+    maximum number of iterations
+    """
+    def setSolverOptions(self, exact_hess):
         # Watch out! Put b (binary) in front of option strings    
         self.addOption(b'mu_strategy', b'adaptive')
         self.addOption(b'max_iter', self.max_iter)
         self.addOption(b'tol', self.rel_tol)
         self.addOption(b'constr_viol_tol', self.constr_viol)
         self.addOption(b"output_file", b"ipopt.out")
-        #self.addOption(b"hessian_approximation", b"exact")
-        self.addOption(b'hessian_approximation', b'limited-memory')
+        self.addOption(b"hessian_constant", b"no")
+        self.addOption(b"hessian_approximation", b"exact") if exact_hess \
+            else self.addOption(b'hessian_approximation', b'limited-memory')
         
         
         
@@ -508,7 +577,7 @@ class Problem(ipopt.problem):
     
     def integrate(self, f):
         # assert ( f.shape[0]==self.h_i.shape[0] )
-        return np.sum( f*self.h_i )
+        return integrate.simpson( f, dx=self.h_i )
     
     
     """
@@ -596,6 +665,13 @@ Things to do or check:
     
     - is the spline a good way to interpolate the density?
     - check "solve" matrix
+    - implement logarithmic derivatives:
+        
+        d(ln f(x))/dx = 1/f(x) df/dx
+    =>  df/dx = f(x) d(ln f(x))/dx
+    The advantage is that, when f(x) is exponentially small, the derivative
+    of the logarithm can be computed in a more stable way numerically.
+    Is it worth implementing?
 """
 
 if __name__=="__main__":
