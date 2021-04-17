@@ -205,11 +205,11 @@ class Solver(object):
         closure test of the numerical procedure
     """
     def solve(self):
-        print ("A\t",self.A.shape,"\tb\t",self.b.shape)
-        # build sparse matrix
+        # print ("A\t",self.A.shape,"\tb\t",self.b.shape)
+        # Build sparse matrix
         A_sp = csc_matrix(self.A, dtype=float)
         # Solve with least-squares
-        x, istop, itn, r1norm = lsqr(A_sp, self.b, atol=1e-9, btol=1e-9)[:4]
+        x, istop, itn, r1norm = lsqr(A_sp, self.b, atol=1e-10, btol=1e-10)[:4]
         check = np.allclose( A_sp.dot(x), self.b )
         # Write potential to file
         with open(self.pot_file, 'w') as fv:
@@ -243,9 +243,10 @@ class Solver(object):
 
 
 if __name__=="__main__":
-    nucl = Problem(Z=20,N=20, n_type='p', max_iter=4000, ub=10., debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/SkXDensityCa40p.dat") )
+    #nucl = Problem(Z=20,N=20, n_type='p', max_iter=4000, ub=12., debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/SkXDensityCa40p.dat"), exact_hess=True )
     #nucl = Problem(Z=20,n_type='p', max_iter=4000, ub=8., debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/rho_HO_20_particles_coupled_basis.dat") )
-    #nucl = Problem(Z=8,N=8, n_type='p', max_iter=4000, ub=8., debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/SkXDensityO16p.dat") )
+    nucl = Problem(Z=8,N=8, n_type='p', max_iter=4000, ub=8., debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/SkXDensityO16p.dat"), exact_hess=True )
+    #nucl = Problem(Z=82,N=108, n_type='p', max_iter=4000, ub=15., debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/SOGDensityPb208p.dat"), exact_hess=True )
     
     results, info = nucl.solve()
     
