@@ -21,7 +21,7 @@ from EigenFunctions import HO_3D
 
 
 
-class Problem_mod2(ipopt.problem):
+class Problem(ipopt.problem):
     """
     A class used to represent a nuclear Inverse Kohn-Sham (IKS) problem.
     
