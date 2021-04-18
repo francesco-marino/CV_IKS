@@ -85,6 +85,7 @@ class Energy(object):
             if(rho!=None):
                 #Input-given density (as a function)
                 self.rho_fun = rho
+                self.rho = self.rho_fun(self.R)
                 
                 if (grad_rho!=None):
                     self.grad_rho_fun = grad_rho
@@ -97,9 +98,10 @@ class Energy(object):
             else:
                 #Input-given density (as an array) 
                 self.rho_fun, self.grad_rho_fun = interpolate(data[0], data[1], der=True)
+                self.rho = self.rho_fun(self.R)
                 self.grad_rho = self.grad_rho_fun(self.R)
             
-            self.rho = self.rho_fun(self.R)
+            
             #Input given potential
             self.v_fun = v
                 
