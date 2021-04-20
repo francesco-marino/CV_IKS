@@ -49,8 +49,8 @@ class Solver(object):
     """
     def _getOrbitals(self, x):
         self.u, self.du, self.d2u = self.getU(x)
-        #self.b = self._getB(); self.A = self._getA()
-        self.A, self.b = self._AB()
+        #self.b = self._getB(); self.A = self._getA()    # Old
+        self.A, self.b = self._AB()                     # New
         
         
     """
@@ -85,9 +85,18 @@ class Solver(object):
                 A[r,p] = self.u[k,p]
                 # Orthonormality constr. 
                 for a, (i,j) in enumerate(self.problem.pairs):
-                    # Find "j" orbitals "paired" with k
+                    # Find orbitals "paired" with k
+                    if k in (i,j):
+                        not_k = j if k==i else i
+                        if i==j:    # Normality
+                            A[r,self.n_points+a] += -self.u[k,p]
+                        else:       # Orthogonality     
+                            A[r,self.n_points+a] += -0.5* self.u[not_k,p]
+
+                    """
                     if k==i:
                         A[r,self.n_points+a] += - self.u[j,p]
+                    """
                 # Update row number 
                 r += 1
         return A, B
@@ -100,7 +109,7 @@ class Solver(object):
                 
         
         
-    """
+    
     def _getB(self):
         _len = self.n_points*self.n_orbitals*(self.n_orbitals+1)//2
         B = np.zeros( _len )    #(_len, self.n_points) )
@@ -108,8 +117,11 @@ class Solver(object):
             for b in range(a+1):
                 if (a,b) in self.pairs:
                     l = self.orbital_set[a].l
-                    row = (a*(a+1)//2 +b)*self.n_points
-                    B[row:row+self.n_points] = coeffSch * self.u[b,:]* ( self.d2u[a,:] -l*(l+1)/self.grid**2 * self.u[a,:] )
+                    #row = (a*(a+1)//2 +b)*self.n_points
+                    for i in range(self.n_points):
+                        pos = self.n_points*(b + a*(a+1)//2 ) + i
+                        B[pos] = coeffSch * self.u[b,i]* ( self.d2u[a,i] -l*(l+1)/self.grid[i]**2 * self.u[a,i] )
+                    #B[row:row+self.n_points] = coeffSch * self.u[b,:]* ( self.d2u[a,:] -l*(l+1)/self.grid**2 * self.u[a,:] )
         return np.ndarray.flatten(B)
     
     def _getA(self):
@@ -119,9 +131,11 @@ class Solver(object):
         for a in range(self.n_orbitals):
             for b in range(a+1):
                 if (a,b) in self.pairs:
-                    row = (a*(a+1)//2 +b)*self.n_points
-                    # fill (row+i; i)
-                    A[row:row+self.n_points, :self.n_points] = np.diag( self.u[b,:]*self.u[a,:]*2. )
+                    for i in range(self.n_points):
+                        row = (a*(a+1)//2 +b)*self.n_points + i
+                        A[row,i] = self.u[b,i]*self.u[a,i]*2.
+                    #row = (a*(a+1)//2 +b)*self.n_points
+                    #A[row:row+self.n_points, :self.n_points] = np.diag( self.u[b,:]*self.u[a,:]*2. )
         # Epsilon
         for a in range(self.n_orbitals):
             for b in range(a+1):
@@ -130,16 +144,16 @@ class Solver(object):
                         for q in range(p+1):
                             if a==p or a==q:
                                 for i in range(self.n_points):
-                                    row = (a*(a+1)//2 +b)*self.n_points 
+                                    row = (a*(a+1)//2 +b)*self.n_points + i
                                     col = self.n_points + (p+1)*p//2 + q
                                     if q<a and self.orbital_set[q].l==self.orbital_set[b].l and self.orbital_set[q].j==self.orbital_set[b].j:
-                                        A[row:row+self.n_points, col] = - self.u[b,:]* self.u[q,:]
+                                        A[row, col] = - self.u[b,i]* self.u[q,i]
                                     if p>a and self.orbital_set[p].l==self.orbital_set[b].l and self.orbital_set[p].j==self.orbital_set[b].j:
-                                        A[row:row+self.n_points, col] = - self.u[b,:]* self.u[p,:]
+                                        A[row, col] = - self.u[b,i]* self.u[p,i]
                                     if p==q and self.orbital_set[p].l==self.orbital_set[b].l and self.orbital_set[p].j==self.orbital_set[b].j:
-                                        A[row:row+self.n_points, col] = - self.u[b,:]* self.u[p,:]
+                                        A[row, col] = - self.u[b,i]* self.u[p,i]
         return A
-        """
+        
     
    
     """
@@ -197,6 +211,15 @@ class Solver(object):
     """
     Solve a matrix problem for potential and eigenvalues
     
+    Parameters
+    ----------
+    max_prec: bool
+        solver the system at max possible precision (default True) (may take several seconds)
+    tol: float
+        precision parameter of the least-square solver (default 1e-5) (used only if max_prec is False)
+    max_iter: int
+        max. number of iterations (default 10000) (used only if max_prec is False)
+    
     Returns
     ----------
     x: np.array(n_constr)
@@ -204,13 +227,18 @@ class Solver(object):
     check: bool
         closure test of the numerical procedure
     """
-    def solve(self):
+    def solve(self, max_prec=True, tol=1e-10, max_iter=10000):
         # print ("A\t",self.A.shape,"\tb\t",self.b.shape)
         # Build sparse matrix
-        A_sp = csc_matrix(self.A, dtype=float)
+        self.A_sparse = csc_matrix(self.A, dtype=float)
         # Solve with least-squares
-        x, istop, itn, r1norm = lsqr(A_sp, self.b, atol=1e-10, btol=1e-10)[:4]
-        check = np.allclose( A_sp.dot(x), self.b )
+        #x, istop, itn, r1norm = lsqr(self.A_sparse, self.b, atol=1e-10, btol=1e-10)[:4]
+        if max_prec:
+            x, istop, itn, r1norm = lsqr(self.A_sparse, self.b, atol=0., btol=0., conlim=0., show=True, iter_lim=50000)[:4]
+        else:
+            x, istop, itn, r1norm = lsqr(self.A_sparse, self.b, atol=tol, btol=tol, iter_lim=max_iter)[:4]
+        #self.everything =  lsqr(self.A_sparse, self.b, atol=0., btol=0.)
+        check = np.allclose( self.A_sparse.dot(x), self.b )
         # Write potential to file
         with open(self.pot_file, 'w') as fv:
             v,eps = self._getVandE(x)
@@ -243,10 +271,10 @@ class Solver(object):
 
 
 if __name__=="__main__":
-    #nucl = Problem(Z=20,N=20, n_type='p', max_iter=4000, ub=12., debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/SkXDensityCa40p.dat"), exact_hess=True )
+    nucl = Problem(Z=20,N=20, n_type='p', max_iter=4000, ub=15., debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/SkXDensityCa40p.dat"), exact_hess=True )
     #nucl = Problem(Z=20,n_type='p', max_iter=4000, ub=8., debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/rho_HO_20_particles_coupled_basis.dat") )
-    nucl = Problem(Z=8,N=8, n_type='p', max_iter=4000, ub=8., debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/SkXDensityO16p.dat"), exact_hess=True )
-    #nucl = Problem(Z=82,N=108, n_type='p', max_iter=4000, ub=15., debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/SOGDensityPb208p.dat"), exact_hess=True )
+    #nucl = Problem(Z=8,N=8, n_type='p', max_iter=4000, ub=12., debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/SkXDensityO16p.dat"), exact_hess=True )
+    nucl = Problem(Z=82,N=108, n_type='p', max_iter=4000, ub=12., debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/SOGDensityPb208p.dat"), exact_hess=True )
     
     results, info = nucl.solve()
     
@@ -279,9 +307,10 @@ if __name__=="__main__":
     plt.figure(1)
     for j in range(u.shape[0]):
         plt.plot(nucl.grid, u[j,:], ls='--', label=nucl.orbital_set[j].name)
-        plt.plot(nucl.grid, nucl.getU(nucl.results['start'])[j,:], label=nucl.orbital_set[j].name+"  INIT")
+        #plt.plot(nucl.grid, nucl.getU(nucl.results['start'])[j,:], label=nucl.orbital_set[j].name+"  INIT")
     plt.legend()
     
+   
     
     
    
