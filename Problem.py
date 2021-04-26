@@ -36,8 +36,10 @@ class Problem(ipopt.problem):
             non-zero elements of the jacobian (sparse matrix)
         jacobian:
             jacobian matrix of the constraints
-        hessianstructure (TODO)
-        hessian (TODO)
+        hessianstructure:
+            non-zero elements of the hessian (sparse matrix)
+        hessian:
+            hessian matrix of the full objective function
 
     ...
 
@@ -67,7 +69,7 @@ class Problem(ipopt.problem):
     output_folder : str
         name of the folder inside Results where the output is saved (default Output)
     exact_hess : bool
-        use exact Hessian or the authomatic one (default False)
+        use exact Hessian or the authomatic one (default True)
     debug : str
         (not implemnted yet)
         
@@ -77,8 +79,8 @@ class Problem(ipopt.problem):
     
     """
     
-    def __init__(self,Z,N=0,rho=None, lb=0.1,ub=10., h=0.1, n_type="p", data=[], basis=ShellModelBasis(),\
-        max_iter=2000, rel_tol=1e-3, constr_viol=1e-3, output_folder="Output", exact_hess=False, debug='n'):
+    def __init__(self,Z,N=0,rho=None, lb=0.1,ub=10., h=0.1, n_type="p", data=[], basis=None,\
+        max_iter=2000, rel_tol=1e-3, constr_viol=1e-3, output_folder="Output", exact_hess=True, debug='n'):
         
         # Basic info.
         self.N = N
@@ -103,7 +105,7 @@ class Problem(ipopt.problem):
         self.d_d2x = FinDiff(0, self.h, 2, acc=4)
          
         # Orbitals
-        self.basis = basis
+        self.basis = basis if basis is not None else ShellModelBasis()
         self.orbital_set = getOrbitalSet(self.n_particles, basis)
         self.n_orbitals = len(self.orbital_set)
         # Pairs (i,j) of non-orthogonal orbitals
