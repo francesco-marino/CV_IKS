@@ -9,15 +9,16 @@ import numpy as np
 import os
 from findiff import FinDiff
 from scipy import integrate
+import scipy.interpolate as scint
 import matplotlib.pyplot as plt
 
-from Problem import Problem, quickLoad
+# from Problem import Problem, quickLoad
 from Solver import Solver
 
 """
 TO DO/CHECK LIST: 
     
---- think about: domain of the energy since IKS potentials nearby r=0 are not trustworthy
+--- NB: IKS potentials nearby r=0 are not trustworthy
 
 --- give accessibility: choose which scaling one wants to do (could be awful to read)\
                         whether to save Energy value on file
@@ -26,9 +27,7 @@ TO DO/CHECK LIST:
 
 --- split computation of Q/Lambda/Z path? better readable 
 
---- merge energy evaluation for different R_max into the class (as in Test_case0/1/2) (??)
-
-ERROR: IKS does not converge for slightly different rho
+ERROR: IKS is still not stable enough for scaled densities and potentials
 """
 # GAIDUK APPROACH 
 
@@ -54,21 +53,29 @@ class Energy(object):
     """
     
     def __init__(self, problem=None, rho=None, v=None, grad_rho=None, data=[], output="Output",\
-                 param_step=0.1, r_step=0.1, R_min=0.01, R_max=10., integrator=integrate.simpson,\
-                 scaling="all", initial_rho=None):
+                 param_step=0.1, t_min=0., t_max=1., r_step=0.1, R_min=1e-4, R_max=10., \
+                 integrator=integrate.simpson, scaling="all", C_code=False, input_dir="Scaled_Potentials"):
         
-        self.dt = param_step
+        #NOTES:: 
+            #self.R must be chosen in order to consider all potentials after they have gone to 0. (IKS)
+            #also self.T must be set from the IKS potentials (v. checkCPotentials())
+        
         self.dr = r_step
-        self.T = np.arange(self.dt, 1. + self.dt, self.dt) #parameter value list
-        self.R = np.arange(R_min, R_max + self.dr, self.dr)  #radius value list
+        num = int((R_max - R_min) / self.dr)
+        self.R = np.linspace(R_min, R_max, num)  #radius value list
         
-        self.d_dx  = FinDiff(0, self.dr, 1, acc=4)
+        self.d_dx  = FinDiff(0, r_step, 1, acc=4)
         
-        assert not(problem==None and ((rho==None and len(data)==0) or v==None)) #is ValueError better?
+        #is ValueError better in assert errors?
+        
+        # assert not(problem==None and ((rho==None and len(data)==0) or v==None) \
+                   # and (len(data)==0 or C_code==False)) 
+
         
         #if both methods are present, IKS problem comes first
-        if (problem!=None):
-            #IKS problem
+        
+        #IKS problem
+        if (problem is not None):
             
             #------------ADD control over rho==0!! (np.any / np.all)
             self.rho_grid, self.rho = quickLoad(problem.file) \
@@ -79,45 +86,76 @@ class Energy(object):
             
             #saving problem and method
             self.problem = problem
-            self.method = "IKS"
+            self.method = "IKS python"
+        
+        # using provided density
+        elif(rho is not None or len(data)>0): 
+            assert( v is not None or C_code is True ) 
             
-        else: 
+            # Input density function
             if(rho!=None):
-                #Input-given density (as a function)
                 self.rho_fun = rho
                 self.rho = self.rho_fun(self.R)
                 
+                # provided density gradient
                 if (grad_rho!=None):
                     self.grad_rho_fun = grad_rho
                     self.grad_rho = grad_rho(self.R)
-                    
+                
+                # numerical gradient (if none is given)
                 else: 
-                    #if none is given, computing the gradient
                     self.grad_rho = self.d_dx(self.rho)
                     self.grad_rho_fun = interpolate(self.R, self.grad_rho)
+            
+            # Input density array
             else:
-                #Input-given density (as an array) 
                 self.rho_fun, self.grad_rho_fun = interpolate(data[0], data[1], der=True)
                 self.rho = self.rho_fun(self.R)
                 self.grad_rho = self.grad_rho_fun(self.R)
-            
-            
-            #Input given potential
-            self.v_fun = v
-                
-            if len(output)>0 and not os.path.exists("Results/" + output):
-                os.makedirs("Results/" + output)
                 
             self.method = "Rho and v from input"
+            
+            # Input potential function
+            if(v!=None):
+                num = int((t_max - t_min) / param_step)
+                self.T = np.linspace(t_min, t_max, num) #parameter value list
+                
+                self.v_fun = v
+                
+            # Using datas from C++ code
+            else:
+                self.t_min = t_min
+                self.t_max = t_max
+                self.dt = param_step
+                self.input = input_dir
+                
+                self.method = "IKS C++"
+            
+            
+            if len(output)>0 and not os.path.exists("Results/" + output):
+                    os.makedirs("Results/" + output)
+        
+        else:
+            assert(False), "Invalid input parameters"
+            
             
         #saving output directory
         self.output = output
         #saving integration method
         self.integrator = integrator
+        #saving scaling preference
+        self.scaling = scaling
         
         #defining normalization
         self.N = 4*np.pi*self.integrator(self.R**2 * self.rho, self.R)
       
+        
+    def cutoff(rho):
+        r=0.
+        while(True):
+            if( rho(r) < 1e-8 ):
+                return r - 0.1
+            r += 0.1
         
     """
     Return system energy w/ Q, K, L scaling
@@ -131,8 +169,9 @@ class Energy(object):
     
     def solver(self):
         
+        # computing potentials with IKS
         if (self.method == "IKS"):
-            # computing potentials with IKS
+            
             vQ, vL, vZ, v_grid = self.IKS_Potential()
             
             #evaluate potentials in self.R (needed in the integral)
@@ -143,22 +182,31 @@ class Energy(object):
             #getting density and its gradient in self.R
             self.rho = self.rho_fun(self.R)
             self.grad_rho = self.d_dx(self.rho)
-
-        else:
-            #computing potentials given from input
-            self.vQ, self.vL, self.vZ = self.Input_Potential()
-
-            
-        #print("v Q",self.vQ, "\n\n L", self.vL, "\n\n Z", self.vZ, "\n\n Drho", self.grad_rho)
-        E = self.calcIntegral()
         
+        #computing potentials given from input
+        elif(self.method == "Rho and v from input"):
+            
+            self.vQ, self.vL, self.vZ = self.Input_Potential()
+        
+        else:
+            
+            self.vL = self.C_Potential()
+            
+            
+        #print("v Q",self.vQ, "\n\n L", self.vL, "\n\n Z",\
+            #self.vZ, "\n\n Drho", self.grad_rho)
+        
+        # Compute the full (parametric + spatial) integral
+        E = self.calcIntegral()
+        # Save results to file
         self._saveE(E)
     
         return E
-    
-    
+        
+        
     """
-    Parametric potentials from IKS
+    Parametric potentials from IKS.
+    Return IKS potentials for different values of the "t" parameter.
     
     Parameters
     ----------
@@ -193,7 +241,22 @@ class Energy(object):
                 elif scaling == "z":
                     x = self.rho_grid * t**(1./3.)
                     Rho = self.rho * t**2
+                #NB -------- NOT TRUE! can't use self.rho since density mut be evaluated in x! 
+                #NB -------- Nevertheless, when passing the grid to problem this must be self.R and NOT x.
+                # ... since the scaled density is still a function of r only
                 
+                #it should be like the following: (to check)
+                """
+                if scaling == "q":
+                    x = self.rho_grid
+                    Rho = self.rho * t
+                elif scaling == "lambda":
+                    x = self.rho_grid * t
+                    Rho = self.rho_fun(x) * t**3
+                elif scaling == "z":
+                    x = self.rho_grid * t**(1./3.)
+                    Rho = self.rho_fun(x) * t**2
+                """
                 print("\n\nComputing potential with ", scaling, \
                       " scaling and parameter t: \t", t, '\n')
                 
@@ -201,7 +264,8 @@ class Energy(object):
                 file = self.output + "/" + scaling + "_minimization_t=" + str('%.1f'%t)
                 
                 #setting problem density with (r,rho_t(r))
-                self.problem.setDensity(data=(x, Rho), output_folder=file)
+                #NB ---------- pay attention to the grid!!
+                self.problem.setDensity(data=(self.rho_grid, Rho), output_maxolder=file)
                 
                 #computing eigenfunctions
                 res, info = self.problem.solve()
@@ -211,6 +275,7 @@ class Energy(object):
                 self.status.append(st)
                 
                 #computing potentials
+                # solv = Solver(self.problem, x) #no need of x
                 solv = Solver(self.problem, x)
                 v.append(solv.getPotential())
             
@@ -224,9 +289,10 @@ class Energy(object):
             elif scaling == "z":
                 self.status_Z = self.status
                 vZ = v
-                    
+                
+       # they are all evaluated in solv.grid              
         return vQ, vL, vZ, solv.grid 
-        # they are all evaluated in solv.grid
+       
         
         
     """
@@ -281,15 +347,96 @@ class Energy(object):
             vQ.append(row)
             # L
             x = self.R * t 
-            row = self.v_fun(x, self.rho_fun, self.N, t**3)
+            row = self.v_fun(x, self.rho_fun, self.N, t**3, self.R)
             row = row
             vL.append(row)
             # Z
             x = self.R * t**(1./3.)
-            row = self.v_fun(x, self.rho_fun, self.N, t**2)
+            row = self.v_fun(x, self.rho_fun, self.N, t**2, self.R)
             vZ.append(row)
         
         return np.array(vQ), np.array(vL), np.array(vZ)
+    
+    
+    """
+    Load and calculate scaled potentials from C++ files
+    """
+    
+    def C_Potential(self):
+        # radial grid is maximum for the smallest lambda, \
+            # all potentials will be evaluated there
+        
+        # create radial grid
+        name = "/Potentials/pot_L=" + str('%.2f'%self.t_min) + "0000_C++.dat"
+        r, p = quickLoad(self.input + name)
+        
+        num = int(r[-1] / self.dr)
+        self.R = np.linspace(0., r[-1], num)
+        # print(r[-1])
+        
+        # create parametrical grid
+        self.checkCPotentials()
+    
+        self.vL=[]
+        for t in self.T:
+        # for i, t in enumerate(self.T): ##use this for plots below
+            name = "/Potentials/pot_L=" + str('%.2f'%t) + "0000_C++.dat"
+            r, p = quickLoad(self.input + name, beg=3, end=3)
+            p = self.shiftPotentials(r, p)
+            r, p = self.extendPotentials(r, p)
+            
+            # plot(r, p, t)
+            
+            # v_fun = interpolate(r, p) ## with spline
+            v_fun = scint.interp1d(r, p, fill_value="extrapolate") ## with interp1d
+            self.vL.append(v_fun(self.R))
+            
+            # plot(self.R, self.vL[i], t)
+        
+        return np.array(self.vL)
+    
+    
+    """
+    Create parametrical grid while checking convergence of C++ potentials
+    """
+    
+    def checkCPotentials(self):
+        self.T = np.arange(self.t_min, self.t_max, self.dt) # + self.dt
+        if (self.t_max-self.T[-1])>1e-6 : self.T = np.append(self.T, self.t_max) # (*)
+        
+        b, l = quickLoad(self.input + "/Status.dat")
+        elim = np.array(np.where(b!=1))
+        self.T = np.delete(self.T, elim)
+        
+        # print(np.arange(0.43,1.,0.01))
+        # PROBLEM: why the heck does it end in 1.?!
+        # that is why (*) is required
+    
+    
+    """
+    Shifting potentials so that v(r)=0 for r->inf
+    """
+    
+    def shiftPotentials(self, rad, pot):
+        # DeltaPot = np.amax(pot) - np.amin(pot)
+        pot = pot - pot[-5]
+        
+        return pot
+        
+    
+    """
+    Extend potentials with 0 till the radial grid end
+    """
+    
+    def extendPotentials(self, rad, pot):
+        R = rad[-1]
+        while (R < self.R[-1]):
+            # print(t)
+            R += 0.1
+            rad = np.append(rad, R)
+            pot = np.append(pot, 0.)
+            
+        return rad, pot
     
     
     """
@@ -315,39 +462,56 @@ class Energy(object):
         # print("INTEGRAL, SHAPES: \n rho \t", np.shape(self.rho), "\n Drho \t", \
         # np.shape(self.grad_rho), "\n vQ \t", np.shape(self.vQ), \
         # "\n vL \t", np.shape(self.vL), "\n vZ \t", np.shape(self.vZ))
-
-        #Q integral
-        I = self.integrator(self.vQ, self.T, axis=0) #integral over t
-        f_Q = I * 4 *np.pi * self.R**2 * self.rho / self.N
-        I_Q = self.integrator(f_Q, self.R) #integral over r
+        I_Q=[]; I_L=[]; I_Z=[];
         
-        #LAMBDA integral
-        I_r=[]
-        for j in range(len(self.T)):
-            # L
-            l = self.T[j]
-            x = self.R * l
-            f_L = self.vL[j,:] / l * 4 * np.pi * x**2 * \
-                (3 * self.rho_fun(x) / self.N + x * self.grad_rho_fun(x) / self.N)
-            I = self.integrator(f_L, x) #integrating over r
-            I_r.append(I)
+        
+        if self.scaling == "all" or self.scaling == "q" :
+            #Q integral
             
-        I_L = self.integrator(I_r, self.T) #integrating over t
-        
-        #Z integral
-        I_r=[]
-        for j in range(len(self.T)):
-            # Z
-            z = self.T[j]
-            x = self.R * z**(1./3.) 
-            f_Z = self.vZ[j,:] * 4 * np.pi * x**2 * \
-                (2 * self.rho_fun(x) / self.N + x/3. * self.grad_rho_fun(x) / self.N)
-            I = self.integrator(f_Z, x) #integrating over r
-            I_r.append(I)
-        
-        I_Z = self.integrator(I_r, self.T) #integrating over t
+            #integral over t
+            I = self.integrator(self.vQ, self.T, axis=0) 
+            f_Q = I * 4 *np.pi * self.R**2 * self.rho / self.N
+            #integral over r
+            I_Q = self.integrator(f_Q, self.R) 
         
         
+        if self.scaling == "all" or self.scaling == "l" :
+            #LAMBDA integral
+            
+            I_r=[]
+            self.integrand=[]
+            for j, l in enumerate(self.T):
+                # L
+                x = self.R * l
+                f_L = self.vL[j,:] / l * 4 * np.pi * x**2 * \
+                    (3 * self.rho_fun(x) / self.N + x * self.grad_rho_fun(x) / self.N)
+                #integrating over r
+                I = self.integrator(f_L, x)
+                I_r.append(I)
+                
+                self.integrand.append(f_L)
+                
+            #integrating over t
+            I_L = self.integrator(I_r, self.T) 
+        
+        
+        if self.scaling == "all" or self.scaling == "z" :
+            #Z integral
+            
+            I_r=[]
+            for j, z in enumerate(self.T):
+                # Z
+                x = self.R * z**(1./3.) 
+                f_Z = self.vZ[j,:] * 4 * np.pi * x**2 * \
+                    (2 * self.rho_fun(x) / self.N + x/3. * self.grad_rho_fun(x) / self.N)
+                #integrating over r
+                I = self.integrator(f_Z, x)
+                I_r.append(I)
+            
+            #integrating over t
+            I_Z = self.integrator(I_r, self.T)
+        
+# @F: why doing I_r=np.zeros_like(...) and I_r[j]=... instead of I_r.append(...) ?
         return I_Q, I_L, I_Z
     
     
@@ -400,6 +564,58 @@ def interpolate(r, f, der=False):
         d1 = lambda x: interpolate.splev(x, tck, der=1)
         
         return ff, d1
+
+
+"""
+Read datas from file
+"""
+
+def quickLoad(file, beg=0, end=0):
+        count = 0
+        file = open(file)
+        ff = file.readlines()
+        file.close()
+        r = []; dp = []
+        for ll in ff:
+            if str(ll).startswith("#"):
+                  pass
+            elif(count < beg):
+                count += 1
+                pass
+            elif(ll==ff[-end] and end!=0):
+                break
+            else:
+                ll = [ float(x) for x in ll.split() ]
+                r.append( ll[0] )
+                dp.append( ll[1] )
+        r=np.array(r); dp=np.array(dp)
+        return (r,dp)
+
+
+"""
+Plot datas
+"""
+
+def plot(r, v, t=0):
+        fig, ax = plt.subplots(1,1,figsize=(5,5))
+        ax.plot(
+            r, v,
+            # color = "orange",
+            lw = 2
+            )
+        
+        plt.grid(); 
+        #plt.legend()
+        if t!=0:
+            ax.set_title("Scaled Potential with t=" + str('%.2f'%t))
+        else:
+            ax.set_title("Scaled Potential")
+        ax.set_xlabel("Radius r")
+        ax.set_xlim([0, 40])
+        ax.set_ylim([-50, 5])
+        ax.set_ylabel("Potential v([rho(r)],r)")
+        
+        
 #########################################################
 ########################TEST#############################
 #########################################################
@@ -414,42 +630,91 @@ if __name__ == "__main__":
     #energy = Energy(problem_IKS, "HO20coupled")
     #energy = Energy(problem_IKS, "Pb208SOG_En")
     
-    print("\n \n TEST 1: ------------ \n \n")
-    #TEST 1
-    rho = lambda r : np.ones_like(r)
-    grad_rho = lambda r : np.zeros_like(r)
-    # potential = lambda rho : rho
-    def potential(r, rho, N=1, t=1):
-        v = t * rho(r) / N
+    energy = Energy(data=quickLoad("Densities/SkXDensityO16p.dat"), C_code=True, \
+                    param_step=0.01, t_min=0.41, t_max=1.0, \
+                    input_dir="Scaled_Potentials/O16", scaling='l')
 
-        return v
+    energy.solver()
+    v = np.array(energy.vL)
+    r = energy.R
     
-    # energy = Energy(rho=rho, v=potential, grad_rho=grad_rho, param_step=0.001, r_step=0.001, R_min=0., R_max=10.)
-    energy = Energy(rho=rho, v=potential, param_step=0.001, r_step=0.001, R_min=0., R_max=10.)
+    fig, ax = plt.subplots(1,1,figsize=(5,5))
+    for i in range(len(v)):
+        ax.plot(
+            r, v[i,:],
+            lw = 2
+            )
     
-    E = energy.solver()
-    print("Energies: \n",\
-          "\n\nEnergies with trapezoids: ", E[0],\
-          "\n\nEnergies from simpson: ", E[1])
-        
+    plt.grid(); #plt.legend()
+    ax.set_title("Potentials for all lambdas")
+    ax.set_xlabel("Radius r")
+    ax.set_xlim([0, 12])
+    # ax.set_ylim([-50, -100])
+    ax.set_ylabel("Potential v")
     
-    print("\n \n TEST 2: ------------ \n \n")
-    #TEST 2   
-    rho = lambda r : r
-    grad_rho = lambda r : np.ones_like(r)
-    # potential = lambda rho : rho**2
-    # potential = lambda rho,r : rho(r)**2
+    integrand = np.array(energy.integrand)
+    fig, ax = plt.subplots(1,1,figsize=(5,5))
+    for i in range(len(v)):
+        ax.plot(
+            r, integrand[i,:],
+            lw = 2
+            )
     
-    def potential(r, rho, N=1, t=1):
-        v = (t * rho(r) / N) **2
-
-        return v
-        
-    # energy = Energy(rho=rho, v=potential, grad_rho=grad_rho, param_step=0.001, r_step=0.01, R_min=0., R_max=5.)
-    energy = Energy(rho=rho, v=potential, param_step=0.001, r_step=0.001, R_min=0., R_max=5.)
+    plt.grid(); #plt.legend()
+    ax.set_title("Integrand function for all lambdas")
+    ax.set_xlabel("Radius r")
+    ax.set_xlim([0, 12])
+    # ax.set_ylim([-50, -100])
+    ax.set_ylabel("Integrand values")
+    
+    """
+    data = quickLoad("Scaled_Potentials/O16/Potentials/pot_L=0.410000_C++.dat", 3, 3)
+    # data = quickLoad("Scaled_Potentials/O16/Potentials/pot_L=1.000000_C++.dat", 3, 3)
+    # data_true = quickLoad("Potentials/pot_o16_skx_other_iks.dat")
+    p = interpolate(data[0], data[1])
+    
+    v = scint.interp1d(data[0], data[1], fill_value="extrapolate")
+    r = np.arange(0., data[0][-1], 0.1)
+    
+    fig, ax = plt.subplots(1,1,figsize=(5,5))
+    ax.plot(
+        data[0], data[1],
+        color = "blue",
+        label = "original", 
+        lw = 2
+        )
+    ax.plot(
+        r, v(r),
+        color = "green",
+        ls = 'dashdot',
+        label = "interp1D", 
+        lw = 2
+        )
+    ax.plot(
+        r, p(r),
+        color = "orange",
+        ls = '--',
+        label = "spline", 
+        lw = 2
+        )
+    """
+    """
+    ax.plot(
+        data_true[0], data_true[1], # - data_true[1][-5],
+        color = "Red",
+        ls = 'dotted',
+        label = "complete original", 
+        lw = 2
+        )
+    """
+    """
+    plt.grid(); plt.legend()
+    ax.set_title("Pot")
+    ax.set_xlabel("Radius r")
+    # ax.set_xlim([0, 11])
+    # ax.set_ylim([-50, -100])
+    ax.set_ylabel("Pot")
+    """
     
     
-    E = energy.solver()
-    print("Energies: \n",\
-          "\n\nEnergies with trapezoids: ", E[0],\
-          "\n\nEnergies from simpson: ", E[1])
+    
