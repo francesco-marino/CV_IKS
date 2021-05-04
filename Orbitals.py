@@ -68,7 +68,7 @@ class OrbitalSet(object):
         self.index += 1
         return result 
     
-    def __getitem__(self,k):
+    def __getitem__(self,k):    
         return self.list_orbs[k]
          
     def __len__(self):
@@ -85,6 +85,20 @@ class OrbitalSet(object):
         for oo in self.list_orbs:
             s += oo.occupation
         return s
+
+    def getLJD(self):
+        L = [ self.list_orbs[l].l for l in range(len(self.list_orbs)) ]
+        J = [ self.list_orbs[j].j for j in range(len(self.list_orbs)) ]
+        D = [ self.list_orbs[d].degeneracy for d in range(len(self.list_orbs)) ]
+        
+        return (L, J, D)
+    
+    """
+    Reset counter
+    """
+    def reset(self):
+        self.index = 0      # see __next__
+        self.n_particles = self.countParticles()
     
     
 
@@ -140,5 +154,5 @@ def getOrbitalSet(n_particles, basis=ShellModelBasis() ):
         
 
 if __name__=="__main__":
-    ss = getOrbitalSet(82)
-    print (ss)
+    ss = getOrbitalSet(20)
+    print (ss,'\n', ss.getLJD())

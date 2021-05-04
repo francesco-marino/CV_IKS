@@ -137,7 +137,7 @@ class Problem(ipopt.problem):
         if len(self.output_folder)>0 and not os.path.exists(self.output_folder):
             os.makedirs(self.output_folder)
         
-        #self.exact_hess = exact_hess
+        self.exact_hess = exact_hess
         self.debug = True if debug=='y' else False
         #self.dbg_file = open(self.output_folder+"/debug.dat", 'w')
         
@@ -172,13 +172,15 @@ class Problem(ipopt.problem):
         name of the output folder inside Results
     
     """
-    def setDensity(self, rho=None, data=[], output_folder="Output"):
+    def setDensity(self, rho=None, data=[], ub=0, output_folder="Output"):
         if rho is None and len(data)==0:
             raise ValueError("Error: no valid density was provided")
         else:
+            if ub==0 : ub = self.ub
             self.basis.reset()
-            self.__init__(self.Z, self.N, rho, self.lb, self.ub, self.h, self.n_type, data, \
-               self.basis, self.max_iter, self.rel_tol, self.constr_viol, output_folder, self.debug )
+            self.__init__(self.Z, self.N, rho, self.lb, ub, self.h, self.n_type, data, \
+               self.basis, self.max_iter, self.rel_tol, self.constr_viol, output_folder, \
+               self.exact_hess, self.debug )
     
     
     """
