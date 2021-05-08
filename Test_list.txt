@@ -1,7 +1,0 @@
-Test_base: problem and solver test // energy IKS test
-Test_try0: rho=1, v=rho // rho=r, v=rho**2 (old Gaiduk_Test_1/2)
-Densities_test: rho=const // sin // exp , used for following tests
-Test_case0: E=a/3*rho**3, rho=const // sin // exp
-Test_case1: E=a*rho**2, rho=const // sin // exp
-Test_case2: E=a*rho, rho=const // sin // exp
-Test_case3: E=a*rho**(b+1), rho=const // sin // exp, for various b 

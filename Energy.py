@@ -12,7 +12,6 @@ from scipy import integrate
 import scipy.interpolate as scint
 import matplotlib.pyplot as plt
 
-from Constants import coeffSch, T
 from Plot_templ import Plot
 from Orbitals import ShellModelBasis
 from Problem import Problem
@@ -26,8 +25,6 @@ TO DO/CHECK LIST:
 --- check where rho==0 (see line 74) (ex HO_20_particles_coupled_basis), it gives problem somewhere
 
 --- split computation of Q/Lambda/Z path? better readable 
-
-ERROR: IKS is still not stable enough for scaled densities and potentials
 """
 # GAIDUK APPROACH 
 
@@ -53,51 +50,55 @@ class Energy(object):
     """
     
     def __init__(self, problem=None, rho=None, v=None, grad_rho=None, data=[],\
-                 output="Output", param_step=0.01, t_min=0., t_max=1., r_step=0.1,\
+                 output="Output", param_step=0.01, t_min=1., t_max=0., ts=None, r_step=0.1,\
                  R_min=1e-4, R_max=10., cutoff=1e-8, integrator=integrate.simpson,\
                  scaling="l", C_code=False, input_dir="Scaled_Potentials", load='y'):
         
-        #NOTES:: 
+        #NOTES:
             #self.R must be chosen in order to consider all potentials after they have gone to 0. (IKS)
-            #also self.T must be set from the IKS potentials (v. checkCPotentials())
             
         self.dr = r_step
-        # self.R = np.arange(R_min, R_max + self.dr, self.dr)  #radius value list
-
+        self.R = np.arange(R_min, R_max, self.dr)  #radius value list ##1
+        if (R_max-self.R[-1])>1e-6 : self.R = np.append(self.R, R_max)
+        
+        """
         num = int((R_max - R_min) / self.dr)
-        self.R = np.linspace(R_min, R_max, num)  #radius value list
-        # self.R = np.around(self.R, 3)
-
-        self.d_dx  = FinDiff(0, r_step, 1, acc=4)
+        self.R = np.linspace(R_min, R_max, num)  #radius value list ##2
+        # real_r_step = self.R / num
+        self.dr = (self.R[-1]-self.R[0])/num
+        """
         
-        #is ValueError better in assert errors?
+        self.d_dx  = FinDiff(0, self.dr, 1, acc=4)
+            
+        #creating parameter list
+        self.dt = param_step
+        self.reverse_t = False
+        if ts is not None: 
+            self.T = ts
+        else: 
+            self.setNewParameters(t_min, t_max, param_step)
         
-        # assert not(problem==None and ((rho==None and len(data)==0) or v==None) \
-                   # and (len(data)==0 or C_code==False)) 
-
         
-        #if both methods are present, IKS problem comes first
+        #if more methods are present, IKS problem comes first
         
         #IKS problem
         if (problem is not None):
             
+            
             #------------ADD control over rho==0!! (np.any / np.all)
             self.rho_grid = problem.grid
             self.rho = problem.tab_rho
+            self.rho_fun = problem.rho
             #print(self.rho_grid, self.rho)
+            
             self.R = self.rho_grid
-            
-            self.rho_fun, self.grad_rho_fun = interpolate(self.rho_grid, self.rho, der=True)
-            
+            self.grad_rho = self.d_dx(self.rho)
+            self.grad_rho_fun = interpolate(self.rho_grid, self.grad_rho)
+            # self.rho_fun, self.grad_rho_fun = interpolate(self.rho_grid, self.rho, der=True)
+
             self.cutoff = cutoff
             
-            #creating parameter list, including t_max
-            self.dt = param_step
-            self.T = np.arange(t_min, t_max, param_step)
-            if abs(self.T[-1]-t_max)>1e-6 : self.T = np.append(self.T, t_max)
-            
             self.blackList = []
-            # print(self.T)
             
             #saving problem and method
             self.problem = problem
@@ -111,48 +112,34 @@ class Energy(object):
             # Input density function
             if(rho!=None):
                 self.rho_fun = rho
-                self.rho = self.rho_fun(self.R)
                 
                 # provided density gradient
                 if (grad_rho!=None):
                     self.grad_rho_fun = grad_rho
-                    self.grad_rho = grad_rho(self.R)
+                    # self.grad_rho = grad_rho(self.R)
                 
                 # numerical gradient (if none is given)
-                else: 
+                else:
+                    self.rho = self.rho_fun(self.R)
                     self.grad_rho = self.d_dx(self.rho)
                     self.grad_rho_fun = interpolate(self.R, self.grad_rho)
             
             # Input density array
             else:
                 self.rho_fun, self.grad_rho_fun = interpolate(data[0], data[1], der=True)
-                self.rho = self.rho_fun(self.R)
-                self.grad_rho = self.grad_rho_fun(self.R)
+                # self.rho = self.rho_fun(self.R)
+                # self.grad_rho = self.grad_rho_fun(self.R)
                 
             self.method = "Rho and v from input"
             
             # Input potential function
             if(v!=None):
-                # self.dt = param_step
-                # self.T = np.arange(self.dt, 1. + self.dt, self.dt) #parameter value list
-
-                if t_min==0 : t_min = param_step
-                num = int((t_max - t_min) / param_step)
-                self.T = np.linspace(t_min, t_max, num) #parameter value list
-
                 self.v_fun = v
                 
             # Using datas from C++ code
             else:
-                # self.t_min = t_min
-                # self.t_max = t_max
-                self.dt = param_step
-                
-                self.T = np.arange(t_min, t_max, self.dt) 
-                if (t_max-self.T[-1])>1e-6 : self.T = np.append(self.T, t_max)
-                
+                #saving method and file source directory
                 self.input = input_dir
-                
                 self.method = "IKS C++"
             
             
@@ -171,7 +158,7 @@ class Energy(object):
         self.scaling = scaling
         
         #defining normalization
-        self.N = 4*np.pi*self.integrator(self.R**2 * self.rho, self.R)
+        self.N = 4*np.pi*self.integrator(self.R**2 * self.rho_fun(self.R), self.R)
         
         
     """
@@ -179,7 +166,7 @@ class Energy(object):
     """    
     def getEnergy(self):
         # potential
-        DeltaU = self.solver()
+        DeltaU = self.getPotential_En()
         # kinetic
         K = self.getKinetic_En()
         DeltaK = K[1]-K[0]
@@ -204,7 +191,7 @@ class Energy(object):
         
     """
     
-    def solver(self):
+    def getPotential_En(self):
         
         # computing potentials with python IKS 
         if (self.method == "IKS python"):
@@ -213,8 +200,8 @@ class Energy(object):
             
             #they are useful only for q, not anywhere else (and only self.rho too)
             #getting density and its gradient in self.R ###remove maybe??
-            self.rho = self.rho_fun(self.R)
-            self.grad_rho = self.d_dx(self.rho)
+            # self.rho = self.rho_fun(self.R)
+            # self.grad_rho = self.d_dx(self.rho)
             
             if self.scaling == "all" or self.scaling == "q" :
                 self.rQ, self.vQ = self.P_Potential(rQ, vQ, self.T_Q)
@@ -237,8 +224,9 @@ class Energy(object):
         # loading potentials from C++ datas
         else:
             
-            self.rL, self.vL = self.C_Potential()
-            self.T_L = self.T
+            if self.scaling == "all" or self.scaling == "l" :
+                self.rL, self.vL = self.C_Potential()
+                self.T_L = self.T
             
             
         #print("v Q",self.vQ, "\n\n L", self.vL, "\n\n Z",\
@@ -247,7 +235,7 @@ class Energy(object):
         # Compute the full (parametric + spatial) integral
         U = self.calcIntegral()
     
-        return U#[1]
+        return U[1]
         
         
     """
@@ -272,9 +260,11 @@ class Energy(object):
     
     def IKS_Potential(self):
         
-        # create folder in which to save potentials 
+        # create folder in which to save potentials and kinetic energies
         if not os.path.exists("Results/" + self.output + "/Potentials"):
                     os.makedirs("Results/" + self.output + "/Potentials")
+        if not os.path.exists("Results/" + self.output + "/Kinetics"):
+                    os.makedirs("Results/" + self.output + "/Kinetics")
                     
         # needed to check convergences
         check = (b"Algorithm terminated successfully at a locally optimal point, "
@@ -289,9 +279,8 @@ class Energy(object):
         rQ=[]; rL=[]; rZ=[]
         
         for s in scaling:
-            r=[]; v=[]
-            self.status=[]
-            elim=[]
+            r=[]; v=[]; K=[]
+            status=[]; elim=[]
             
             for j,t in enumerate(self.T): 
                 
@@ -301,15 +290,23 @@ class Energy(object):
                 file_pot = "Results/" + self.output + \
                     "/Potentials/pot_t=" + str('%.4f'%t) + ".dat"
                     
-                # if the potential is already calculated and load == 'y', then load it 
-                if os.path.isfile(file_pot) and self.load=='y':
+                # output file for kinetic energy
+                file_kin = "Results/" + self.output + \
+                    "/Kinetics/k_t=" + str('%.4f'%t) + ".dat"
+                    
+                # if potential and kinetic are already calculated and load == 'y', then load them
+                if os.path.isfile(file_pot) and os.path.isfile(file_kin) \
+                    and self.load=='y':
                     radius, potential = quickLoad(file_pot)
                     r.append(radius)
                     v.append(potential)
+                    
+                    with open(file_kin) as f:
+                        K.append( float(f.readlines()[0]) )
                     continue
                 
                 # check if t is a bad parameter
-                elif t in self.blackList :
+                elif floatCompare(t, self.blackList):
                     elim.append(j)
                     continue
                 
@@ -317,7 +314,7 @@ class Energy(object):
                 Rho_fun = scaleDensityFun(self.rho_fun, t, s)
 
                 # setting problem's upper bound
-                bound = self.getCutoff(Rho_fun, t)
+                bound = self.getCutoff(Rho_fun)
                 
                 print("\n\nComputing potential with ", s, \
                       " scaling and parameter t: \t", t, '\n', \
@@ -329,12 +326,12 @@ class Energy(object):
                 # setting the scaled problem
                 self.problem.setDensity(rho=Rho_fun, ub=bound, output_folder=file)
                 
-                #computing eigenfunctions
+                # computing eigenfunctions
                 res, info = self.problem.solve()
                 
                 # saving status regardless of the convergence success 
                 st = "Minimization with t = "+ str('%.4f'%t) + " : " + str(res['status'])
-                self.status.append(st)
+                status.append(st)
                 
                 #checking convergence
                 if res['status']!=check : 
@@ -347,29 +344,36 @@ class Energy(object):
                 v.append(solv.getPotential())
                 r.append(solv.grid)
                 
-                #saving potentials on a separated folder
+                # saving potentials on a separated folder
                 save = np.column_stack((r[-1],v[-1]))
                 np.savetxt(file_pot, save)
                 
                 # Plot(r[-1], v[-1], "pot t="+str('%.4f'%t))
                 
+                # saving kinetic energy on a separated folder
+                K.append(self.problem.kinetic)
+                np.savetxt(file_kin, np.array([K[-1]]))
+                
             #saving status
-            self.saveStatus(self.status, s)
+            self.saveStatus(status, s)
             
             #saving potentials and modifying parameter list
             if s == "q":
                 self.T_Q = np.delete(self.T, elim)
-                # self.status_Q = self.status
+                # self.status_Q = status
+                self.K_Q = K
                 rQ = r
                 vQ = v
             elif s == "l":
                 self.T_L = np.delete(self.T, elim)
-                # self.status_L = self.status
+                # self.status_L = status
+                self.K_L = K
                 rL = r
                 vL = v
             elif s == "z":
                 self.T_Z = np.delete(self.T, elim)
-                # self.status_Z = self.status
+                # self.status_Z = status
+                self.K_Z = K
                 rZ = r
                 vZ = v
                 
@@ -381,7 +385,7 @@ class Energy(object):
     Calculating density cutoff
     """
     
-    def getCutoff(self, rho, c=0):
+    def getCutoff(self, rho):
         """
         if c==0.91 or c==0.98:
             r=0.
@@ -411,7 +415,6 @@ class Energy(object):
             # L
             x = self.R * t 
             row = self.v_fun(x, self.rho_fun, self.N, t**3, self.R)
-            row = row
             vL.append(row)
             # Z
             x = self.R * t**(1./3.)
@@ -439,10 +442,10 @@ class Energy(object):
             
             # Plot(r[i], v[i], "pot t="+str('%.4f'%t)+" shifted")
             
-            # creating a radial grid with (almost) the step given in input
-            num = int(r[i][-1] / self.dr)
-            rT.append(np.linspace(0., r[i][-1], num))
-        
+            # creating a radial grid with the step given in input
+            rad = np.arange(0., r[i][-1] + self.dr, self.dr)
+            rT.append( rad )
+            
             # interpolation
             v_fun = interpolate(r[i], v[i])                                   ## with spline
             # v_fun = scint.interp1d(r[i], v[i], fill_value="extrapolate")    ## with interp1d
@@ -451,7 +454,7 @@ class Energy(object):
             
             # Plot(r[i], vT[i], "pot t="+str('%.4f'%t)+" shifted and interpoled")
         
-        return rT, vT #np.array(vT)
+        return rT, vT
     
     
     """
@@ -459,21 +462,24 @@ class Energy(object):
     """
     
     def C_Potential(self):
-        #evaluating each in different r as in P_Potentials
+        #evaluating each in different r, as in P_Potentials
 
         #checking convergence status
         self.checkCPotentials()
     
         rT=[]; vT=[] 
-        # for t in self.T:
-        for i, t in enumerate(self.T): ##use this for plots below
+        for i, t in enumerate(self.T):
             name = "/Potentials/pot_L=" + str('%.3f'%t) + "000_C++.dat"
             r, p = quickLoad(self.input + name, beg=3, end=12)
             p = self.shiftPotentials(r, p)
             
-            # creating a radial grid with (almost) the step given in input
+            # creating a radial grid with the step given in input
+            rad = np.arange(0., r[-1] + self.dr, self.dr)
+            rT.append( rad )
+            """
             num = int(r[-1] / self.dr)
             rT.append(np.linspace(0., r[-1], num))
+            """
             
             # interpolation
             # v_fun = interpolate(r, p)                                 ## with spline
@@ -486,6 +492,20 @@ class Energy(object):
     
     
     """
+    Loading kinetics energies from C++ files
+    """
+    
+    def C_Kinetics(self):
+        K=[]
+        for i, t in enumerate(self.T):
+            name = "/Kinetics/kin_L=" + str('%.3f'%t) + "000_C++.dat"
+            with open(self.input + name) as f:
+                K.append( float( f.readlines()[0] ) )
+        
+        return K
+    
+    
+    """
     Create parametrical grid while checking convergence of C++ potentials
     """
     
@@ -494,26 +514,26 @@ class Energy(object):
             
         elim = np.where(b!=1)
         for e in elim[0]:
-            if l[e] in self.T: 
-                self.T = np.delete(self.T, e)
+            if floatCompare(l[e], self.T):
+                rem = np.where(abs(l[e]-self.T)<1e-6)
+                self.T = np.delete(self.T, rem)
         
         
     """
     Shifting potentials so that v(r)=0 for r->inf
     """
-    
+    ######## NOT USED AT THE MOMENT (maybe used but it does nothing) ##########
     def shiftPotentials(self, rad, pot):
         # DeltaPot = np.amax(pot) - np.amin(pot)
         pot = pot #- pot[-5]
         
         return pot
-        
+    ##########################################    
     
-    ######## NOT USED AT THE MOMENT ##########
     """
     Extend potentials with 0 till the radial grid end
     """
-    
+    ######## NOT USED AT THE MOMENT ##########
     def extendPotentials(self, rad, pot):
         R = rad[-1]
         while (R < self.R[-1]):
@@ -523,7 +543,7 @@ class Energy(object):
             pot = np.append(pot, 0.)
             
         return rad, pot
-    ######################################################
+    ###########################################
     
     """
     to do 
@@ -555,15 +575,20 @@ class Energy(object):
             
             I_r=[]
             for j, l in enumerate(self.T_Q):
-                # L
-                x = self.rL[j]
+                # Q
+                x = self.rQ[j]
                 f_Q = self.vQ[j] * 4 * np.pi * x**2 * self.rho_fun(x) / self.N 
                 #integrating over r
                 I = self.integrator(f_Q, x)
                 I_r.append(I)
                 
+            # saving integrand function   
+            self.dE_dQ = I_r
+            
             #integrating over t
             I_Q = self.integrator(I_r, self.T_Q)
+            
+            if self.reverse_t == True: I_Q = - I_Q
 
 
         if self.scaling == "all" or self.scaling == "l" :
@@ -582,12 +607,16 @@ class Energy(object):
                 
                 #graphic purposes
                 self.integrand.append(f_L)
-                
-            self.integral_L = I_r
             
+            
+            self.integral_L = I_r
+            # saving integrand function
             self.dE_dL = I_r
+            
             #integrating over t
             I_L = self.integrator(I_r, self.T_L) 
+            
+            if self.reverse_t == True: I_L = - I_L
 
         
         if self.scaling == "all" or self.scaling == "z" :
@@ -603,62 +632,79 @@ class Energy(object):
                 I = self.integrator(f_Z, x)
                 I_r.append(I)
             
+            self.dE_dZ = I_r
             #integrating over t
             I_Z = self.integrator(I_r, self.T_Z)
+            
+            if self.reverse_t == True: I_Z = - I_Z
         
         return I_Q, I_L, I_Z
     
-    def dEdL(self):
-        return self.T_L, self.dE_dL
+    
+    """
+    Returning integrand of parameter integrals (energy derivatives)
+    """
+    
+    def dEdt(self):
+        
+        if self.scaling == "all" :
+            return self.T_Q, self.dE_dQ,\
+                    self.T_L, self.dE_dL,\
+                     self.T_Z, self.dE_dZ
+        if self.scaling == "q" :
+            return self.T_Q, self.dE_dQ
+        if self.scaling == "l" :
+            return self.T_L, self.dE_dL
+        if self.scaling == "z" :
+            return self.T_Z, self.dE_dZ
     
     
     """
     Setting new parameters list (only for IKS C++ method)
     """
     
-    def setNewParameters(self, t_m=1.0, t_M=1.0, step=0):
+    def setNewParameters(self, t0=1.0, t=1.0, step=0):
         if step>0: self.dt = step 
+        if t==0: t = self.dt
+        if t0==0: t0 = self.dt
         
-        self.T = np.arange(t_m, t_M, self.dt) 
-        if (t_M-self.T[-1])>1e-6 : self.T = np.append(self.T, t_M)
-        
+        if t > t0:
+            self.reverse_t = False
+            self.T = np.arange(t0, t, self.dt) 
+            if (t-self.T[-1])>1e-6 : self.T = np.append(self.T, t)
+        elif t0 == t:
+            self.T = np.array([t0])
+        elif t < t0: 
+            self.reverse_t = True
+            self.T = np.arange(t, t0, self.dt)
+            if (t0-self.T[-1])>1e-6 : self.T = np.append(self.T, t0)
+        # print(self.T)
      
+    
     """
-    (wrapper) Calculate initial and final energy
+    Return kinetic energy and its parameters
     """
-    ############ MUST BE GENERALISED FOR OTHER SCALINGS
-    def getKinetic_En(self, T=[]):
-        s = 'l'
-        K=[]
-        if len(T)==0: T = self.T_L
-        for t in [T[0], T[-1]]:
-            #setting problem with the right parameter
-            Rho_fun = scaleDensityFun(self.rho_fun, t, s)
-            self.problem.setDensity(rho=Rho_fun, output_folder=self.output)
-            
-            file = "Results/" + self.output + "/" + s \
-                + "_minimization_t=" + str('%.4f'%t) + "/f.dat"
-            K.append( self.calc_KineticEn(file) )
+    
+    def getKinetic_En(self):
+        # C++
+        if self.method == "IKS C++":
+            self.K_L = self.C_Kinetics()
+            return self.T_L, self.K_L
+        # Python
+        else:
+            if self.scaling == "all" :
+                return self.T_Q, self.K_Q,\
+                        self.T_L, self.K_L,\
+                         self.T_Z, self.K_Z,
+            if self.scaling == "q" :
+                return self.T_Q, self.K_Q
+            if self.scaling == "l" :
+                return self.T_L, self.K_L
+            if self.scaling == "z" :
+                return self.T_Z, self.K_Z
                   
-        return K[0], K[1]
-    
-    
-    """
-    Compute kinetic energy
-    """
-
-    def calc_KineticEn(self, name):
-        sigma = 0
-        r,f,orb = loadUF(name)
-        C0, C1, C2 = self.getCFunctions(r[0])
-        # print("C0", C0, '\n',"C1", C1, '\n',"C2",C2,'\n',f )
-        l, j, deg = self.problem.orbital_set.getLJD()
-        for i in range(len(self.problem.orbital_set)):
-            I = C0[i]* f[i]**2 + C1* f[i]* self.problem.d_dx(f[i])+ C2 *self.problem.d_d2x(f[i])*f[i]
-            sigma += deg[i] * self.integrator(I, r[i])
         
-        return -T*sigma    
-    
+ 
     
     """
     Interpolate and evaluate C0 C1 C2 in the same grid as f 
@@ -852,145 +898,31 @@ def plot(r, v, t=0):
         ax.set_ylabel("Potential v([rho(r)],r)")
         
         
+def floatCompare(a, floats, **kwargs):
+  return np.any(np.isclose(a, floats, **kwargs))
+      
 #########################################################
 ########################TEST#############################
 #########################################################
+from E_behaviour import E_behaviour_calc
 
 if __name__ == "__main__":
+     
+    #check which cutoff was used in C++ simulations (check directory name)
+    prec = "_-8"
     
-    # problem_IKS = Problem(Z=20,N=20, max_iter=10, rel_tol=1e-4, constr_viol=1e-4, data=quickLoad("Densities/SkXDensityCa40p.dat"))
-    #problem_IKS = Problem(Z=20,N=20, max_iter=4000, rel_tol=1e-4, constr_viol=1e-4, data=quickLoad("Densities/rho_HO_20_particles_coupled_basis.dat"))
-    #problem_IKS = Problem(Z=82,N=126, max_iter=4000, rel_tol=1e-4, constr_viol=1e-4, data=quickLoad("Densities/SOGDensityPb208p.dat"))
+    #choose which nucleus, particle and interaction to use:
+    # n = 1 O16n SkX
+    # n = 2.5 O16n t0t3
+    # n = 8 Ca40n Skx
+    # n = 9 Ca40n t0t3
+    # see E_behaviour for the full list  (for other n the program should be slightly modified usually)
+    n = 1
     
-    #energy = Energy(problem_IKS, "Ca40SkX_En")
-    #energy = Energy(problem_IKS, "HO20coupled")
-    #energy = Energy(problem_IKS, "Pb208SOG_En")
-    """
-    energy = Energy(data=quickLoad("Densities/SkXDensityO16p.dat"), C_code=True, \
-                    param_step=0.01, t_min=0.41, t_max=1.0, \
-                    input_dir="Scaled_Potentials/O16", scaling='l')
-
-    energy.solver()
-    v = np.array(energy.vL)
-    r = energy.R
+    #max iteration for the IKS code, if all the potentials have already been calculated \
+    #(thus saved in the directory), it can be set to 0
+    max_iter = 2000
     
-    fig, ax = plt.subplots(1,1,figsize=(5,5))
-    for i in range(len(v)):
-        ax.plot(
-            r, v[i,:],
-            lw = 2
-            )
-    
-    plt.grid(); #plt.legend()
-    ax.set_title("Potentials for all lambdas")
-    ax.set_xlabel("Radius r")
-    ax.set_xlim([0, 12])
-    # ax.set_ylim([-50, -100])
-    ax.set_ylabel("Potential v")
-    
-    integrand = np.array(energy.integrand)
-    fig, ax = plt.subplots(1,1,figsize=(5,5))
-    for i in range(len(v)):
-        ax.plot(
-            r, integrand[i,:],
-            lw = 2
-            )
-    
-    plt.grid(); #plt.legend()
-    ax.set_title("Integrand function for all lambdas")
-    ax.set_xlabel("Radius r")
-    ax.set_xlim([0, 12])
-    # ax.set_ylim([-50, -100])
-    ax.set_ylabel("Integrand values")
-    """
-    """
-    data = quickLoad("Scaled_Potentials/O16/Potentials/pot_L=0.410000_C++.dat", 3, 3)
-    # data = quickLoad("Scaled_Potentials/O16/Potentials/pot_L=1.000000_C++.dat", 3, 3)
-    # data_true = quickLoad("Potentials/pot_o16_skx_other_iks.dat")
-    p = interpolate(data[0], data[1])
-    
-    v = scint.interp1d(data[0], data[1], fill_value="extrapolate")
-    r = np.arange(0., data[0][-1], 0.1)
-    
-    fig, ax = plt.subplots(1,1,figsize=(5,5))
-    ax.plot(
-        data[0], data[1],
-        color = "blue",
-        label = "original", 
-        lw = 2
-        )
-    ax.plot(
-        r, v(r),
-        color = "green",
-        ls = 'dashdot',
-        label = "interp1D", 
-        lw = 2
-        )
-    ax.plot(
-        r, p(r),
-        color = "orange",
-        ls = '--',
-        label = "spline", 
-        lw = 2
-        )
-    """
-    """
-    ax.plot(
-        data_true[0], data_true[1], # - data_true[1][-5],
-        color = "Red",
-        ls = 'dotted',
-        label = "complete original", 
-        lw = 2
-        )
-    """
-    """
-    plt.grid(); plt.legend()
-    ax.set_title("Pot")
-    ax.set_xlabel("Radius r")
-    # ax.set_xlim([0, 11])
-    # ax.set_ylim([-50, -100])
-    ax.set_ylabel("Pot")
-    """
-    
-    ## IKS with python test
-    
-    
-    O16 = Problem(Z=8,N=8, max_iter=2000, rel_tol=1e-4, constr_viol=1e-4, \
-                  data=quickLoad("Densities/SkXDensityO16p.dat"),
-                  basis=ShellModelBasis(), exact_hess=True)
-        
-    dat = quickLoad("Densities/SkXDensityO16p.dat")
-    rho = interpolate(dat[0], dat[1])
-    density = scaleDensityFun(rho, 1., 'l')    
-    
-    # O16.solve()
-    
-    for rr in np.arange(0.,50.,0.1):
-        if( density(rr) < 1e-8 ):
-            bound_right = rr - 0.1
-            break
-        
-    # r=np.arange(0.,10.,0.1)
-    # Plot(r, density(r))
-    # print(boundxyz)
-    
-    nucl = Problem(Z=8,N=8, max_iter=2000, rel_tol=1e-4, constr_viol=1e-4, \
-                  rho=density, ub=bound_right, \
-                  basis=ShellModelBasis(), exact_hess=True)
-    
-    # res, info = nucl.solve()
-    
-    # solver = Solver(nucl)
-    # solver.solve()
-    
-    # Plot(solver.grid, solver.getPotential())
-    
-    energy = Energy(problem=O16,\
-                    param_step=0.01, t_min=0.99, t_max=1., output="IKS_Python_test_with_Kinetic",\
-                    scaling='l', r_step=0.1, cutoff=1e-8)
-        
-    print("\npotential \t ", energy.solver())
-    print("\nkinetic \t ", energy.getKinetic_En())
-    print("\ntotal \t ", energy.getEnergy())
+    E_behaviour_calc(prec, n, max_iter)
     
         

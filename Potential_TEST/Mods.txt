@@ -1,0 +1,3 @@
+no mod == original problem
+mod == integrated using simpson, removed *h from the jacobian
+mod 2 == integrated using simpson

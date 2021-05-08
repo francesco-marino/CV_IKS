@@ -26,7 +26,7 @@ def dfactorial(n):
         return n*dfactorial(n-2)
     
     
-# harmonic oscillator 3D eigenfunctions
+ 
 def HO_3D(N,L,nu):
     norm = np.sqrt( 2*np.power(nu,3)/np.pi )    \
         * np.power(2,N+2*L+2)                   \
