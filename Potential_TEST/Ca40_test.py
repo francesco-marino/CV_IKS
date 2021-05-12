@@ -15,9 +15,24 @@ from Problem import Problem, quickLoad
 from Solver import Solver
 from Orbitals import ShellModelBasis
 
+
+def getTheoretical_t0t3(rho_p, rho_n):
+    #parameters
+    t0 = -2552.84; t3=16694.7; alfe=0.20309
+    
+    first = t0/4.+t3/24.*(rho_p+rho_n)**alfe
+    second = t3/24.*alfe*(rho_p+rho_n)**(alfe-1)
+    third = (rho_p+rho_n)**2 + 2*rho_p*rho_n
+    
+    vp = first * (2*rho_p+4*rho_n) + second * third
+    vn = first * (2*rho_n+4*rho_p) + second * third
+    
+    return vp, vn
+
+
 if __name__ == "__main__":
     
-    particle = 'p'
+    particle = 'n'
     n = 2
     
     if n==1: ############           SkX
@@ -26,12 +41,16 @@ if __name__ == "__main__":
             
     if n==2: ############           t0t3
         data=read("Densities/rho_ca40_t0t3.dat")
+        rho_p = data[1]
+        rho_n = data[2]
         nucl_name = "Ca40"+particle+"_t0t3"
         if particle == 'p': 
             data= data[0],data[1]
         else:
             data= data[0],data[2]
-        
+            
+        # Theoretical potentials
+        v_prot, v_neut = getTheoretical_t0t3(rho_p, rho_n)
         
     for bound in [9., 10., 11., 12.]:
         print("using NO MOD \n")
@@ -111,10 +130,15 @@ if __name__ == "__main__":
         ax.plot(solver0.grid, pot0 - pot0[60]+vp[60], label="CV acc=2")
         # ax.plot(solver1.grid, pot1 - pot1[3]+vp[3], label="CV acc=6")
         # ax.plot(solver2.grid, pot2 - pot2[3]+vp[3], label="CV acc=4")
-        ax.plot(r, vp, '--', label="exact")
-        ax.plot(r_other, vp_other - vp_other[46]+vp[60], label="other IKS")
+        ax.plot(r, vp, label="HF")
+        ax.plot(r_other, vp_other - vp_other[60]+vp[60], label="other IKS")
+        if n==2: 
+            if particle == 'p':
+                ax.plot(data[0], v_prot - v_prot[60]+vp[60], label="Theoretical", ls='--')
+            else:
+                ax.plot(data[0], v_neut - v_neut[60]+vp[60], label="Theoretical", ls='--')
+            
         plt.grid(); plt.legend()
-        
         ax.set_title(nucl_name + " " + str(bound) )#+ " mod 2")
         ax.set_xlabel("radius"),
         ax.set_ylabel("potential")

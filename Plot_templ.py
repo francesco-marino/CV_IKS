@@ -10,8 +10,8 @@ import matplotlib.pyplot as plt
 
 from Problem import quickLoad
 
-name = "Scaled_Potentials/Ca40t0t3_coul/Ca40t0t3_01_-8/Potentials/pot_L=1.000000_C++.dat"
-r, v = quickLoad(name)
+# name = "Scaled_Potentials/Ca40t0t3_coul/Ca40t0t3_01_-8/Potentials/pot_L=1.000000_C++.dat"
+# r, v = quickLoad(name)
 
 def Plot(r,v, x="", y="", title="", lab=""):
     fig, ax = plt.subplots(1,1,figsize=(5,5))

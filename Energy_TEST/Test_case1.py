@@ -72,10 +72,10 @@ if __name__ == "__main__":
     for i in R:
         energy = Energy(rho=rho, v=potential, grad_rho=grad_rho, scaling='all',\
                         param_step=0.001, r_step=0.01, R_min=0., R_max=i)
-        E = energy.solver()
-        EQ.append(E[0])
-        EL.append(E[1])
-        EZ.append(E[2])
+        E = energy.getPotential_En()
+        EQ.append(-E[0])
+        EL.append(-E[1])
+        EZ.append(-E[2])
     
     E_th = []
     for i in R:
@@ -99,10 +99,10 @@ if __name__ == "__main__":
     for i in R:#grad_rho=grad_rho,\
         energy = Energy(rho=rho, v=potential, scaling='all',\
                         param_step=0.001, r_step=0.01, R_min=0., R_max=i)
-        E = energy.solver()
-        EQ.append(E[0])
-        EL.append(E[1])
-        EZ.append(E[2])
+        E = energy.getPotential_En()
+        EQ.append(-E[0])
+        EL.append(-E[1])
+        EZ.append(-E[2])
     
     E_th = []
     for i in R:
@@ -129,10 +129,10 @@ if __name__ == "__main__":
     for i in R:#grad_rho=grad_rho,\
         energy = Energy(rho=rho, v=potential, scaling='all', \
                         param_step=0.001, r_step=0.01, R_min=0., R_max=i)
-        E = energy.solver()
-        EQ.append(E[0])
-        EL.append(E[1])
-        EZ.append(E[2])
+        E = energy.getPotential_En()
+        EQ.append(-E[0])
+        EL.append(-E[1])
+        EZ.append(-E[2])
         
     E_th = []
     for i in R:

@@ -61,13 +61,6 @@ class Energy(object):
         self.R = np.arange(R_min, R_max, self.dr)  #radius value list ##1
         if (R_max-self.R[-1])>1e-6 : self.R = np.append(self.R, R_max)
         
-        """
-        num = int((R_max - R_min) / self.dr)
-        self.R = np.linspace(R_min, R_max, num)  #radius value list ##2
-        # real_r_step = self.R / num
-        self.dr = (self.R[-1]-self.R[0])/num
-        """
-        
         self.d_dx  = FinDiff(0, self.dr, 1, acc=4)
             
         #creating parameter list
@@ -158,7 +151,8 @@ class Energy(object):
         self.scaling = scaling
         
         #defining normalization
-        self.N = 4*np.pi*self.integrator(self.R**2 * self.rho_fun(self.R), self.R)
+        # self.N = 4*np.pi*self.integrator(self.R**2 * self.rho_fun(self.R), self.R)
+        self.N = 1
         
         
     """
@@ -470,16 +464,12 @@ class Energy(object):
         rT=[]; vT=[] 
         for i, t in enumerate(self.T):
             name = "/Potentials/pot_L=" + str('%.3f'%t) + "000_C++.dat"
-            r, p = quickLoad(self.input + name, beg=3, end=12)
+            r, p = quickLoad(self.input + name, beg=3, end=3)
             p = self.shiftPotentials(r, p)
             
             # creating a radial grid with the step given in input
             rad = np.arange(0., r[-1] + self.dr, self.dr)
             rT.append( rad )
-            """
-            num = int(r[-1] / self.dr)
-            rT.append(np.linspace(0., r[-1], num))
-            """
             
             # interpolation
             # v_fun = interpolate(r, p)                                 ## with spline

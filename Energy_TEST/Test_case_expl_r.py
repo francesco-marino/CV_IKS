@@ -11,7 +11,7 @@ import os
 from scipy import integrate
 
 from Energy import Energy
-from Energy_old import Energy_old
+# from Energy_old import Energy_old
 
 def plotEnergy(E1, r1, E2, r2, scaling, rho_type, output="Case_Expl(r)", save='y'):
         
@@ -86,12 +86,12 @@ if __name__ == "__main__":
         energy_old = Energy_old(rho=rho, v=potential, scaling='all', \
                         param_step=0.001, r_step=0.001, R_min=0., R_max=i)
         """
-        E = energy.solver()
+        E = energy.getPotential_En()
         EQ.append(-E[0])
         EL.append(-E[1])
         EZ.append(-E[2])
         """
-        E = energy_old.solver()
+        E = energy_old.getPotential_En()
         EQ1.append(E[0])
         EL1.append(E[1])
         EZ1.append(E[2])
@@ -111,11 +111,3 @@ if __name__ == "__main__":
     # plotEnergy(EL1, R, E_th, R, 'L', "EXP", save='n')
     # plotEnergy(EZ1, R, E_th, R, 'Z', "EXP", save='n')
     # """
-    
-# %%
-R_max=20.; R_min=0.; step=0.01
-num = int((R_max - R_min) / step)
-R = np.linspace(R_min, R_max, num)
-print(R, len(R))
-R = np.arange(R_min, R_max + step, step)
-print(R, len(R))

@@ -15,10 +15,26 @@ from Problem import Problem, quickLoad
 from Solver import Solver
 from Orbitals import ShellModelBasis
 
+
+def getTheoretical_t0t3(rho_p, rho_n):
+    #parameters
+    t0 = -2552.84; t3=16694.7; alfe=0.20309
+    
+    first = t0/4.+t3/24.*(rho_p+rho_n)**alfe
+    second = t3/24.*alfe*(rho_p+rho_n)**(alfe-1)
+    third = (rho_p+rho_n)**2 + 2*rho_p*rho_n
+    
+    vp = first * (2*rho_p+4*rho_n) + second * third
+    vn = first * (2*rho_n+4*rho_p) + second * third
+    
+    return vp, vn
+    
+    
+
 if __name__ == "__main__":
 
     particle = 'n'
-    n = 1
+    n = 2
     
     if n==1: ############           SkX
         data=quickLoad("Densities/SkXDensityO16"+particle+".dat")
@@ -26,18 +42,22 @@ if __name__ == "__main__":
             
     if n==2: ############           t0t3
         data=read("Densities/rho_o16_t0t3.dat")
+        rho_p = data[1]
+        rho_n = data[2]
         nucl_name = "O16"+particle+"_t0t3"
         if particle == 'p': 
             data= data[0],data[1]
         else:
             data= data[0],data[2]
-        
+    
+        # Theoretical potentials
+        v_prot, v_neut = getTheoretical_t0t3(rho_p, rho_n)
         
     for bound in [8., 9., 10., 11., 12.]:
         print("using NO MOD \n")
         nucl0 = Problem(Z=8,N=8, n_type='p', max_iter=4000, ub=bound, debug='y', \
                        basis=ShellModelBasis(), data=data, \
-                       output_folder=nucl_name, exact_hess=True)
+                       output_folder=nucl_name+"_graphs", exact_hess=True)
             
         datas, info = nucl0.solve()
         datas = loadData(nucl0.datafile)
@@ -100,16 +120,20 @@ if __name__ == "__main__":
         
         r_other, vp_other = out[0], out[1]
             
-        
         #plotting results
         fig, ax = plt.subplots(1,1,figsize=(5,5))
-        ax.plot(solver0.grid, pot0 - pot0[3]+vp[3], label="CV acc=2")
+        ax.plot(solver0.grid, pot0 - pot0[60]+vp[60], label="CV acc=2")
         # ax.plot(solver1.grid, pot1 - pot1[3]+vp[3], label="CV acc=6")
         # ax.plot(solver2.grid, pot2 - pot2[3]+vp[3], label="CV acc=4")
-        ax.plot(r, vp, '--', label="exact")
-        ax.plot(r_other, vp_other - vp_other[3]+vp[3], label="other IKS")
+        ax.plot(r, vp, label="HF")
+        ax.plot(r_other, vp_other - vp_other[60]+vp[60], label="other IKS")
+        if n==2:
+            if particle == 'p':
+                ax.plot(data[0], v_prot - v_prot[60]+vp[60], label="Theoretical", ls='--')
+            else:
+                ax.plot(data[0], v_neut - v_neut[60]+vp[60], label="Theoretical", ls='--')
+            
         plt.grid(); plt.legend()
-        
         ax.set_title(nucl_name + " " +str(bound))
         ax.set_xlabel("radius"),
         ax.set_ylabel("potential")
