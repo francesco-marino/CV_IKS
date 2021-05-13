@@ -22,8 +22,6 @@ TO DO/CHECK LIST:
     
 --- NB: IKS potentials nearby r=0 are not trustworthy
 
---- check where rho==0 (see line 74) (ex HO_20_particles_coupled_basis), it gives problem somewhere
-
 --- split computation of Q/Lambda/Z path? better readable 
 """
 # GAIDUK APPROACH 
@@ -58,7 +56,7 @@ class Energy(object):
             #self.R must be chosen in order to consider all potentials after they have gone to 0. (IKS)
             
         self.dr = r_step
-        self.R = np.arange(R_min, R_max, self.dr)  #radius value list ##1
+        self.R = np.arange(R_min, R_max, self.dr)  #radius value list 
         if (R_max-self.R[-1])>1e-6 : self.R = np.append(self.R, R_max)
         
         self.d_dx  = FinDiff(0, self.dr, 1, acc=4)
@@ -77,17 +75,13 @@ class Energy(object):
         #IKS problem
         if (problem is not None):
             
-            
-            #------------ADD control over rho==0!! (np.any / np.all)
             self.rho_grid = problem.grid
             self.rho = problem.tab_rho
             self.rho_fun = problem.rho
-            #print(self.rho_grid, self.rho)
             
             self.R = self.rho_grid
             self.grad_rho = self.d_dx(self.rho)
             self.grad_rho_fun = interpolate(self.rho_grid, self.grad_rho)
-            # self.rho_fun, self.grad_rho_fun = interpolate(self.rho_grid, self.rho, der=True)
 
             self.cutoff = cutoff
             
@@ -109,7 +103,6 @@ class Energy(object):
                 # provided density gradient
                 if (grad_rho!=None):
                     self.grad_rho_fun = grad_rho
-                    # self.grad_rho = grad_rho(self.R)
                 
                 # numerical gradient (if none is given)
                 else:
@@ -120,8 +113,6 @@ class Energy(object):
             # Input density array
             else:
                 self.rho_fun, self.grad_rho_fun = interpolate(data[0], data[1], der=True)
-                # self.rho = self.rho_fun(self.R)
-                # self.grad_rho = self.grad_rho_fun(self.R)
                 
             self.method = "Rho and v from input"
             
@@ -191,11 +182,6 @@ class Energy(object):
         if (self.method == "IKS python"):
             
             rQ, vQ, rL, vL, rZ, vZ = self.IKS_Potential()
-            
-            #they are useful only for q, not anywhere else (and only self.rho too)
-            #getting density and its gradient in self.R ###remove maybe??
-            # self.rho = self.rho_fun(self.R)
-            # self.grad_rho = self.d_dx(self.rho)
             
             if self.scaling == "all" or self.scaling == "q" :
                 self.rQ, self.vQ = self.P_Potential(rQ, vQ, self.T_Q)
@@ -520,20 +506,6 @@ class Energy(object):
         return pot
     ##########################################    
     
-    """
-    Extend potentials with 0 till the radial grid end
-    """
-    ######## NOT USED AT THE MOMENT ##########
-    def extendPotentials(self, rad, pot):
-        R = rad[-1]
-        while (R < self.R[-1]):
-            # print(t)
-            R += 0.1
-            rad = np.append(rad, R)
-            pot = np.append(pot, 0.)
-            
-        return rad, pot
-    ###########################################
     
     """
     to do 
@@ -692,28 +664,7 @@ class Energy(object):
                 return self.T_L, self.K_L
             if self.scaling == "z" :
                 return self.T_Z, self.K_Z
-                  
-        
- 
-    
-    """
-    Interpolate and evaluate C0 C1 C2 in the same grid as f 
-    """
-    def getCFunctions(self, r):
-        C0, C1, C2 = self.problem._getCFunctions()
-        C_0 = []
-        for i in range(len(C0)):
-            fun = interpolate( self.problem.grid, C0[i] )
-            C_0.append( fun(r) )
-        C = []
-        for c in [C1, C2]:
-            fun = interpolate( self.problem.grid, c )
-            C.append( fun(r) )
-            
-        return C_0, C[0], C[1]
-        
-        
-        
+
         
     """
     Printing Potential energies on file
@@ -761,13 +712,6 @@ class Energy(object):
                    header='string', comments='', fmt='%s')
             
             
-    """
-    Returnig the potential
-    """
-    
-    def _getPot(self):
-        return self.R, self.vQ, self.vL, self.vZ
-    
 
 """
 Calculating scaled density function
@@ -833,35 +777,6 @@ def quickLoad(file, beg=0, end=0):
         r=np.array(r); dp=np.array(dp)
         return (r,dp)
 
-
-"""
-Read files like u.dat and f.dat
-"""
-
-def loadUF(file):
-    
-    file = open(file)
-    ff = file.readlines()
-    file.close()
-    R = []; U = []; orb = []
-    for j,ll in enumerate(ff):
-        if (str(ll).startswith("#") and j==0) :
-            orb.append(ll)
-            r = []; u = []
-        elif ( str(ll).startswith("#") ):
-            orb.append(ll)
-            R.append(r)
-            U.append(u)
-            r = []; u = []
-        else:
-            ll = [ float(x) for x in ll.split() ]
-            r.append( ll[0] )
-            u.append( ll[1] )
-
-    R.append(r)
-    U.append(u)     
-    R=np.array(R); U=np.array(U)
-    return (R,U,orb)    
 
 
 """
