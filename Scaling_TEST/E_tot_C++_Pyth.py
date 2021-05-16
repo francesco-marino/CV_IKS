@@ -65,7 +65,7 @@ elif n==9:
     Z=20; N=20
     
 #defining problem
-nucl = Problem(Z,N, max_iter=2000, rel_tol=1e-4, constr_viol=1e-4, \
+nucl = Problem(Z,N, max_iter=0, rel_tol=1e-4, constr_viol=1e-4, \
                   data=data, basis=ShellModelBasis(), exact_hess=True)
     
 ###############################################################################
@@ -96,7 +96,8 @@ for i,l in enumerate(l_min):
         K_true = K_P_sx[-1]
         grid_P_sx, dE_P_sx = energy_P.dEdt()
         grid_C_sx, dE_C_sx = energy_C.dEdt()
-       
+        
+"""
 # plotting energies (differences)
 Plot(l_min, E_P_sx, r"$\lambda$", "Potential difference", \
      "Energy differences Python "+nucl_name+prec) 
@@ -109,10 +110,10 @@ Plot(grid_P_sx, dE_P_sx, r"$\lambda$", "dE/dL", \
 # dE_C_sx_sign = [ -x for x in dE_C_sx]
 Plot(grid_C_sx, dE_C_sx, r"$\lambda$", "dE/dL", \
      "dE/dL C++ "+nucl_name+prec)
- 
+""" 
 ###############################################################################
 #defining problem
-nucl = Problem(Z,N, max_iter=2000, rel_tol=1e-4, constr_viol=1e-4, \
+nucl = Problem(Z,N, max_iter=0, rel_tol=1e-4, constr_viol=1e-4, \
                data=data, basis=ShellModelBasis(), exact_hess=True)
     
 l_max = np.arange(1.01,1.7,0.01)
@@ -142,36 +143,35 @@ for i,l in enumerate(l_max):
         grid_K_P_dx, K_P_dx = energy_P.getKinetic_En()
         grid_P_dx, dE_P_dx = energy_P.dEdt()
         grid_C_dx, dE_C_dx = energy_C.dEdt()
-  
+"""  
 # plotting energies (differences)
-# E_P_dx_sign = [ -x for x in E_P_dx]
 Plot(l_max, E_P_dx, r"$\lambda$", "Potential difference", \
      "Energy differences Python "+nucl_name+prec) 
-# E_C_dx_sign = [ -x for x in E_C_dx]
+    
 Plot(l_max, E_C_dx, r"$\lambda$", "Potential difference", \
      "Energy differences C++ "+nucl_name+prec)
+
 # plotting derivatives
-# dE_P_dx_sign = [ -x for x in dE_P_dx]
 Plot(grid_P_dx, dE_P_dx, r"$\lambda$", "dE/dL", \
      "dE/dL Python "+nucl_name+prec)
-# dE_C_dx_sign = [ -x for x in dE_C_dx]
+
 Plot(grid_C_dx, dE_C_dx, r"$\lambda$", "dE/dL", \
      "dE/dL C++ "+nucl_name+prec)
-
+"""
 ###############################################################################
 
 # plotting energy differences and derivatives together
 fig, ax = plt.subplots(1,1,figsize=(5,5))
 ax.plot(
-    l_min, E_P_sx,
-    l_max, E_P_dx,
+    np.concatenate((l_min, l_max)),
+    np.concatenate((E_P_sx, E_P_dx)),
     color = "blue",
     label = "python",
     lw=2
     )
 ax.plot(
-    l_min, E_C_sx,
-    l_max, E_C_dx,
+    np.concatenate((l_min, l_max)),
+    np.concatenate((E_C_sx, E_C_dx)),
     color = "orange",
     label = "C++",
     lw = 2
@@ -184,19 +184,20 @@ ax.set_xlabel(r"$\lambda$")
 ax.set_ylabel("Energy difference")
 # print(grid[0])
 
+# derivatives
 fig, ax = plt.subplots(1,1,figsize=(5,5))
 ax.plot(
-    grid_P_sx, dE_P_sx,
-    grid_P_dx, dE_P_dx,
+    np.concatenate((grid_P_sx, grid_P_dx)),
+    np.concatenate((dE_P_sx, dE_P_dx)),
     color="blue",
-    label = "python",
+    label = "IKS Python",
     lw=2
     )
 ax.plot(
-    grid_C_sx, dE_C_sx,
-    grid_C_dx, dE_C_dx,
+    np.concatenate((grid_C_sx, grid_C_dx)),
+    np.concatenate((dE_C_sx, dE_C_dx)),
     color="orange",
-    label = "C++",
+    label = "IKS C++",
     lw = 2
     )
 plt.grid(); plt.legend()
@@ -209,22 +210,22 @@ ax.set_ylabel("dE/dL")
 # plotting kinetic energies (not differences!) and their theoretical behaviour
 fig, ax = plt.subplots(1,1,figsize=(5,5))
 ax.plot(
-    grid_K_P_sx, K_P_sx,
-    grid_K_P_dx, K_P_dx,
+    np.concatenate((grid_K_P_sx, grid_K_P_dx)),
+    np.concatenate((K_P_sx, K_P_dx)),
     color = "blue",
-    label = "IKS",
+    label = "IKS Pyhton",
     lw=2
     )
 ax.plot(
-    grid_K_C_sx, K_C_sx,
-    grid_K_C_dx, K_C_dx,
+    np.concatenate((grid_K_C_sx, grid_K_C_dx)),
+    np.concatenate((K_C_sx, K_C_dx)),
     color = "red",
-    label = "C++",
+    label = "IKS C++",
     lw=2
     )
 ax.plot(
-    grid_K_P_sx, K_true*grid_K_P_sx**2,
-    grid_K_P_dx, K_true*grid_K_P_dx**2,
+    np.concatenate((grid_K_P_sx, grid_K_P_dx)), 
+    np.concatenate((K_true*grid_K_P_sx**2, K_true*grid_K_P_dx**2)),
     color = "orange",
     ls='--',
     label = "theoretical",
@@ -237,15 +238,32 @@ ax.set_xlabel(r"$\lambda$")
 # ax.set_ylim([-50, -100])
 ax.set_ylabel("K")
 
-##kinetic differences (C++)
-real_K_sx = np.ones_like(K_C_sx)*K_C_sx[-1] 
-real_K_dx = np.ones_like(K_C_dx)*K_C_sx[-1]
+##kinetic differences 
+real_K_C_sx = np.ones_like(K_C_sx)*K_C_sx[-1] 
+real_K_C_dx = np.ones_like(K_C_dx)*K_C_sx[-1]
+real_K_P_sx = np.ones_like(K_P_sx)*K_P_sx[-1] 
+real_K_P_dx = np.ones_like(K_P_dx)*K_P_sx[-1]
 fig, ax = plt.subplots(1,1,figsize=(5,5))
 ax.plot(
+    np.concatenate((grid_K_P_sx, grid_K_P_dx)),
+    np.concatenate((K_P_sx - real_K_P_sx, K_P_dx - real_K_P_dx)),
+    color = "blue",
+    label = "Python",
+    lw=2
+    )
+ax.plot(
     np.concatenate((grid_K_C_sx, grid_K_C_dx)),
-    np.concatenate((K_C_sx - real_K_sx, K_C_dx - real_K_dx)),
-    color = "red",
+    np.concatenate((K_C_sx - real_K_C_sx, K_C_dx - real_K_C_dx)),
+    color = "orange",
     label = "C++",
+    lw=2
+    )
+ax.plot(
+    np.concatenate((grid_K_P_sx, grid_K_P_dx)),
+    np.concatenate((K_true*grid_K_P_sx**2, K_true*grid_K_P_dx**2)) - K_true,
+    color = "red",
+    ls='--',
+    label = "Theoretical",
     lw=2
     )
 plt.grid(); plt.legend()
@@ -255,6 +273,8 @@ ax.set_xlabel(r"$\lambda$")
 # ax.set_ylim([-50, -100])
 ax.set_ylabel("K")
 
+l_min_P = l_min
+l_max_P = l_max
 
 # plotting total energy differences
 ## C++
@@ -271,40 +291,53 @@ for e in elim[0]:
         l_max = np.delete(l_max, rem)
         E_C_dx = np.delete(E_C_dx, rem)
         
-real_K_sx = np.ones_like(E_C_sx)*K_C_sx[-1]
-real_K_dx = np.ones_like(E_C_dx)*K_C_sx[-1]
+real_K_C_sx = np.ones_like(E_C_sx)*K_C_sx[-1]
+real_K_C_dx = np.ones_like(E_C_dx)*K_C_sx[-1]
 K_C_sx_graph = np.delete(K_C_sx, -1)
 K_C_dx_graph = np.delete(K_C_dx, 0)
 
+# Python
+rem=[]
+for i in range(len(l_min_P)-1):
+    if floatCompare(E_P_sx[i],E_P_sx[i+1]):
+        rem.append(i)
+
+l_min_P= np.delete(l_min_P, rem)
+E_P_sx = np.delete(E_P_sx, rem)
+
+rem=[]
+for i in range(len(l_max_P)-1):
+    if floatCompare(E_P_dx[i],E_P_dx[i+1]):
+        rem.append(i)
+
+l_max_P=np.delete(l_max_P, rem)
+E_P_dx = np.delete(E_P_dx, rem)
+        
+real_K_P_sx = np.ones_like(E_P_sx)*K_P_sx[-1]
+real_K_P_dx = np.ones_like(E_P_dx)*K_P_sx[-1]
+K_P_sx_graph = np.delete(K_P_sx, -1)
+K_P_dx_graph = np.delete(K_P_dx, 0)
+   
 fig, ax = plt.subplots(1,1,figsize=(5,5))
 ax.plot(
-    l_min, E_C_sx + K_C_sx_graph - real_K_sx,
-    l_max, E_C_dx + K_C_dx_graph - real_K_dx, 
-    color = "blue",
+    np.concatenate((l_min, l_max)), 
+    np.concatenate((E_C_sx + K_C_sx_graph - real_K_C_sx, \
+                    E_C_dx + K_C_dx_graph - real_K_C_dx)),
+    color = "orange",
     label = "C++",
     lw=2
     )
-plt.grid(); plt.legend()
-ax.set_title("Total energy differences " + nucl_name + prec)
-ax.set_xlabel(r"$\lambda$")
-# ax.set_xlim([0, 11])
-# ax.set_ylim([-50, -100])
-ax.set_ylabel(r"$\Delta$ E_tot")
-
-""" ## must check and reshape sizes
-## PYTHON
-fig, ax = plt.subplots(1,1,figsize=(5,5))
 ax.plot(
-    l_min, E_P_sx + K_P_sx - K_true,
-    l_max, E_P_dx + K_P_dx - K_true, 
+    np.concatenate((l_min_P, l_max_P)), 
+    np.concatenate((E_P_sx + K_P_sx_graph - real_K_P_sx, \
+                    E_P_dx + K_P_dx_graph - real_K_P_dx)),
     color = "blue",
-    label = "IKS",
+    label = "Python",
     lw=2
     )
 plt.grid(); plt.legend()
 ax.set_title("Total energy differences " + nucl_name + prec)
 ax.set_xlabel(r"$\lambda$")
 # ax.set_xlim([0, 11])
-# ax.set_ylim([-50, -100])
+# ax.set_ylim([-0.5, 0.5])
 ax.set_ylabel(r"$\Delta$ E_tot")
-"""

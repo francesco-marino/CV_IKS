@@ -39,4 +39,3 @@ def HO_3D(N,L,nu):
     
     return f
         
-    

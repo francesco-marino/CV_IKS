@@ -487,12 +487,14 @@ class Energy(object):
     
     def checkCPotentials(self):
         b, l = quickLoad(self.input + "/Status.dat")
-            
+        
+        self.blackList = []
         elim = np.where(b!=1)
         for e in elim[0]:
             if floatCompare(l[e], self.T):
                 rem = np.where(abs(l[e]-self.T)<1e-6)
                 self.T = np.delete(self.T, rem)
+                self.blackList.append( l[e] )
         
         
     """

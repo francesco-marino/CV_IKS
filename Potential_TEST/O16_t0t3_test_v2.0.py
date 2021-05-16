@@ -92,13 +92,12 @@ else:
     dat= dat[0],dat[2]
     rho_n_fun = interpolate(dat[0], dat[1])
     
+lambdas = np.arange(0.5, 1.5, 0.01)
 #%% COMPUTING POTENTIALS
 
 nucl = Problem(Z=8,N=8, n_type='p', max_iter=4000, ub=10., debug='y', \
                 basis=ShellModelBasis(), data=dat, \
                 output_folder=nucl_name+"_graphs", exact_hess=True)
-
-lambdas = np.arange(0.5, 1.5, 0.1)
 
 # for Python
 energy = Energy(problem=nucl,  \
@@ -137,50 +136,49 @@ for i,l in enumerate(lambdas):
         
         v_C.append(energy_C.vL[-1])
         r_C.append(energy_C.rL[-1])
-        
+     #%%   
 # plotting potentials
-for i in range(len(v_IKS)):
+# for i in range(len(v_IKS)):
+for i in [10, 30, 50, 70, 90]:
    fig, ax = plt.subplots(1,1,figsize=(5,5))
    ax.plot(
-       r_IKS[i], v_IKS[i],
+       r_IKS[i], v_IKS[i] - v_IKS[i][-10],
        color = "blue",
        label = "IKS Python",
        lw=2
        )
    ax.plot(
-       r_C[i], v_C[i] - v_C[i][55] + v_IKS[i][55],
+       r_C[i], v_C[i] - v_C[i][-10], # + v_IKS[i][-10],
        color = "red",
        label = "IKS C++",
        lw=2
        )
    if particle == 'p':
        ax.plot(
-           r[i], v_prot[i] - v_prot[i][55] + v_IKS[i][55],
+           r[i], v_prot[i] - v_prot[i][-10], # + v_IKS[i][-10],
            color = "orange",
            label = "Theoretical",
            lw = 2
        )
    else:
        ax.plot(
-           r[i], v_neut[i] - v_neut[i][55] + v_IKS[i][55],
+           r[i], v_neut[i] - v_neut[i][-10], # + v_IKS[i][-10],
            color = "orange",
            label = "Theoretical",
            lw = 2
        )
    plt.grid(); plt.legend()
    ax.set_title("Scaled potentials for lambda= " +str(lambdas[i])+" "+nucl_name)
-   ax.set_xlabel(r"$\lambda$")
-   ax.set_xlim([0, 11])
+   ax.set_xlabel("r")
+   # ax.set_xlim([0, 11])
    # ax.set_ylim([-5, 0])
-   ax.set_ylabel("Potential")
-   
+   ax.set_ylabel("Potential logscale")
+   ax.set_yscale('symlog')
 #%% COMPUTING ENERGIES
 
 nucl = Problem(Z=8,N=8, n_type='p', max_iter=4000, ub=10., debug='y', \
                 basis=ShellModelBasis(), data=dat, \
                 output_folder=nucl_name+"_graphs", exact_hess=True)
-
-lambdas = np.arange(0.5, 1.5, 0.1)
 
 # for Python
 energy = Energy(problem=nucl,  \
@@ -194,13 +192,13 @@ energy_C = Energy(data=dat, C_code=True, \
     
     
 U = np.zeros_like(lambdas)
-K=[];
+K=[]; lam_K=[]
 
 U_theor = np.zeros_like(lambdas)
 K_theor = np.zeros_like(lambdas)
 
 U_C = np.zeros_like(lambdas)
-K_C = []
+K_C = []; lam_K_C=[]; j=1; x=1; t=1
 for i,l in enumerate(lambdas):
     energy.setNewParameters(t=l)
     U[i]=energy.getPotential_En()
@@ -210,14 +208,26 @@ for i,l in enumerate(lambdas):
     
     if floatCompare(l, energy.T_L):
         temp1, temp2 = energy.getKinetic_En()
-        temp3, temp4 = energy_C.getKinetic_En()
+        lam_K.append(l)
+        
         if l<1:
             K.append(temp2[0])
-            K_C.append(temp4[0])
-            
         else: 
             K.append(temp2[-1])
+        
+        if floatCompare(l, 1.):
+            K_P_real = temp2[0]
+            
+    if floatCompare(l, energy_C.T_L):
+        temp3, temp4 = energy_C.getKinetic_En()
+        lam_K_C.append(l)
+        if l<1:
+            K_C.append(temp4[0])
+        else: 
             K_C.append(temp4[-1])
+        
+        if floatCompare(l, 1.):
+            K_C_real = temp4[0]
             
     U_theor[i] = getTheoreticalEnergyScaled_t0t3(dat[0], rho_p, rho_n, l)
     K_theor[i] = getTheoreticalKinetic_t0t3(l)
@@ -252,13 +262,13 @@ Plot(lambdas, U_C, r"$\lambda$", "Kinetic", \
 #NB, K[5] and K_C[5] are the real kinetic energies; must change if lambdas is changed
 fig, ax = plt.subplots(1,1,figsize=(5,5))
 ax.plot(
-    lambdas, np.array(K)*2 - K[5]*2,
+    lam_K, np.array(K)*2 - np.array(K_P_real)*2,
     color = "blue",
     label = "IKS PYTHON",
     lw=2
     )
 ax.plot(
-    lambdas, np.array(K_C)*2 - 2* K_C[5],
+    lam_K_C, np.array(K_C)*2 - np.array(K_C_real)*2,
     color = "red",
     label = "IKS C++",
     lw=2
@@ -307,13 +317,29 @@ ax.set_ylabel("Potential energy difference")
 #%% PLOTTING TOTAL ENERGY DIFFERENCES
 
 # IKS PYTHON
-Plot(lambdas, U+K-K[5], r"$\lambda$", "total energy difference", \
+rem=[]
+for elim in np.array(energy.blackList): 
+    if floatCompare(elim, lambdas):
+        rem.append( np.where(abs(elim-lambdas)<1e-6) )
+
+lam_P= np.delete(lambdas, rem)
+U = np.delete(U, rem)
+
+Plot(lam_P, U+K-K_P_real, r"$\lambda$", "total energy difference", \
      "IKS PYTHON total energy difference "+nucl_name)
     
+rem=[]
+bL_C = np.append(energy_C.blackList, 0.97)
+for elim in np.array(bL_C): 
+    if floatCompare(elim, lambdas):
+        rem.append( np.where(abs(elim-lambdas)<1e-6) )
+        
+lam_C= np.delete(lambdas, rem)
+U_C = np.delete(U_C, rem)
 # IKS C++
-Plot(lambdas, U_C+K_C-K_C[5], r"$\lambda$", "total energy difference", \
+Plot(lam_C, U_C+K_C-K_C_real, r"$\lambda$", "total energy difference", \
      "IKS C++ total energy difference "+nucl_name)
-    
+
 # Theoretical
 Plot(lambdas, U_theor-U_real+K_theor-K_real, r"$\lambda$", "total energy difference", \
      "Theoretical total energy difference "+nucl_name)
