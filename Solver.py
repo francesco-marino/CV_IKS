@@ -49,7 +49,7 @@ class Solver(object):
     """
     def _getOrbitals(self, x):
         self.u, self.du, self.d2u = self.getU(x)
-        #self.b = self._getB(); self.A = self._getA()    # Old
+        # self.b = self._getB(); self.A = self._getA()    # Old
         self.A, self.b = self._AB()                     # New
         
         
