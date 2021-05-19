@@ -4,6 +4,7 @@
 import pickle  # for input/output
 from numpy import array
 import numpy as np
+from scipy import interpolate  as interp
 
 
 def saveData(filename, data):
@@ -18,6 +19,23 @@ def loadData(filename):
     with open(filename, 'rb') as f:
         data = pickle.load(f)
     return data
+
+
+"""
+Interpolation of a function f in its (discrete) domain r
+"""  
+def interpolate(r, f, get_der=False):
+    r=np.array(r); f=np.array(f);
+    assert( len(r)==len(f) )
+     
+    tck  = interp.splrep(r, f)
+    ff = lambda x: interp.splev(x, tck )
+    
+    if(get_der == False):
+        return ff    
+    else: 
+        d1 = lambda x: interp.splev(x, tck, der=1)  
+        return ff, d1
 
 
 """
@@ -56,6 +74,9 @@ def is_float_try(stri):
         return False
 
 
+# TODO add explanation
+def floatCompare(a, floats, **kwargs):
+  return np.any(np.isclose(a, floats, **kwargs))
 
 
 " Simpson's integration rule "

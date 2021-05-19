@@ -8,7 +8,7 @@ from scipy.sparse.linalg import spsolve, lsqr
 import matplotlib.pyplot as plt
 
 from Problem  import Problem, quickLoad
-from Orbitals import UncoupledHOBasis, ShellModelBasis
+from Orbitals import UncoupledHOBasis, ShellModelBasis, OrbitalSet
 from Constants import coeffSch
 from Misc import loadData, read
 
@@ -44,6 +44,14 @@ class Solver(object):
         x = np.array(x)
         self.x = self.data['x'] if x.shape[0]==0 else x
         self._getOrbitals(self.x)
+        
+        # Square matrix of epsilon multipliers
+        self.eps_matrix = np.zeros( shape=(self.n_orbitals,self.n_orbitals) )
+        # Sorted eigenvalues and orbitals
+        self.sorted_orbital_set = None
+        self.eigenvalues = None
+        # Matrix of transformed orbitals (same shape as u)
+        self.eigenvectors= None
     
     """
     """
@@ -91,7 +99,7 @@ class Solver(object):
                         if i==j:    # Normality
                             A[r,self.n_points+a] += -self.u[k,p]
                         else:       # Orthogonality     
-                            A[r,self.n_points+a] += -0.5* self.u[not_k,p]
+                            A[r,self.n_points+a] += -self.u[not_k,p]
 
                     """
                     if k==i:
@@ -109,7 +117,7 @@ class Solver(object):
                 
         
         
-    
+    """
     def _getB(self):
         _len = self.n_points*self.n_orbitals*(self.n_orbitals+1)//2
         B = np.zeros( _len )    #(_len, self.n_points) )
@@ -153,7 +161,7 @@ class Solver(object):
                                     if p==q and self.orbital_set[p].l==self.orbital_set[b].l and self.orbital_set[p].j==self.orbital_set[b].j:
                                         A[row, col] = - self.u[b,i]* self.u[p,i]
         return A
-        
+    """   
     
    
     """
@@ -219,6 +227,8 @@ class Solver(object):
         precision parameter of the least-square solver (default 1e-5) (used only if max_prec is False)
     max_iter: int
         max. number of iterations (default 10000) (used only if max_prec is False)
+    diag: bool
+        compute the energy eigenvalues and the eigenvectors (rotated orbitals) (default True)
     
     Returns
     ----------
@@ -227,17 +237,14 @@ class Solver(object):
     check: bool
         closure test of the numerical procedure
     """
-    def solve(self, max_prec=True, tol=1e-10, max_iter=10000):
-        # print ("A\t",self.A.shape,"\tb\t",self.b.shape)
+    def solve(self, max_prec=True, tol=1e-10, max_iter=10000, diag=True):
         # Build sparse matrix
         self.A_sparse = csc_matrix(self.A, dtype=float)
         # Solve with least-squares
-        #x, istop, itn, r1norm = lsqr(self.A_sparse, self.b, atol=1e-10, btol=1e-10)[:4]
         if max_prec:
             x, istop, itn, r1norm = lsqr(self.A_sparse, self.b, atol=0., btol=0., conlim=0., show=True, iter_lim=50000)[:4]
         else:
             x, istop, itn, r1norm = lsqr(self.A_sparse, self.b, atol=tol, btol=tol, iter_lim=max_iter)[:4]
-        #self.everything =  lsqr(self.A_sparse, self.b, atol=0., btol=0.)
         check = np.allclose( self.A_sparse.dot(x), self.b )
         # Write potential to file
         with open(self.pot_file, 'w') as fv:
@@ -248,7 +255,12 @@ class Solver(object):
         with open(self.epsilon_file, 'w') as fe:
             v,eps = self._getVandE(x)
             for k, (i,j) in enumerate(self.pairs):
-                fe.write("{ni}\t{nj}\t{ep:.10E}\n".format(ni=self.orbital_set[i].getName(), nj=self.orbital_set[j].getName(), ep=v[k]))
+                fe.write("{ni}\t{nj}\t{ep:.10E}\n".format(ni=self.orbital_set[i].getName(), nj=self.orbital_set[j].getName(), ep=eps[k]))
+                # Fill epsilon matrix (symmetric)
+                self.eps_matrix[i,j] = eps[k]
+                self.eps_matrix[j,i] = eps[k]
+        if diag:
+            self.diagonalize(eps=self.eps_matrix)
         return x, check
     
     
@@ -265,49 +277,113 @@ class Solver(object):
         v,eps = self._getVandE(x)
         return v
         
+    
+    """
+    Diagonalizes the matrix eps of multipliers.
+    Returns the energy eigenvalues and a set of tranformed orbitals,
+    which are eigenvectors of the energy.
+    Moreover, the resulting orbitals are sorted according to their energy, as
+    in standard Hartree-Fock or Schroedinger eqs.
+    """
+    def diagonalize(self, eps=None):
+        if eps is None:
+            eps = self.eps_matrix
+        # Find subspaces and subsets of eps with same l and j (dictionaries)
+        subspaces = dict()
+        submatrices = dict()
+        # key: (l,j); value: list of orbital indeces   
+        self.problem.orbital_set.reset()
+        for k, q in enumerate(self.problem.orbital_set):
+            lj = (q.l, q.j)
+            if not (lj in subspaces.keys() ):
+                subspaces[ lj ] = []
+            # k-th orbitals belongs to lj subspace
+            subspaces[ lj ].append(k)
+        # Find submatrix of epsilon corresponding to given (l,j)
+        for lj, val in subspaces.items():
+            submatr = []
+            for row in val:
+                for col in val:
+                    submatr.append( eps[row,col] )
+            submatr = np.reshape(submatr, (len(val),len(val)) )
+            submatrices[ lj ] = submatr
+        # Diagonalize each submatrix 
+        orb_num, eigenvalues = [], []
+        new_u = self.u.copy()
+        for lj, matr in submatrices.items():
+            if matr.shape[0] > 1:
+                vals, vect = np.linalg.eig( matr )
+                # sort eigenvalues and eigenvectors 
+                sorted_indexes = np.argsort(vals)
+                vals = vals[sorted_indexes]
+                vect = vect[:,sorted_indexes]
+                # Apply orthogonal tranformation R to orbitals
+                # matr = vect @ vals @ inv(vect) => u's traform with inv(vect)
+                R = np.linalg.inv( vect )   # rotation matrix
+                for mi, m in enumerate(subspaces[ lj ]):
+                    new_u[m,:] = 0.
+                    for ni, n in enumerate(subspaces[ lj ]):
+                        new_u[m,:] += R[mi,ni]* self.u[n,:]
+            else:
+                vals = [matr[0,0],]
+            # Save eigenvalues and corresponding orbital number
+            for k, v in enumerate(vals):
+                eigenvalues.append(v)
+                orb_num.append( subspaces[lj][k] )
+                
+        # Sort ALL orbitals and eigenvalues
+        sorted_indexes = np.argsort(eigenvalues)
+        self.eigenvalues = np.array(eigenvalues)[sorted_indexes]
+        orb_num = np.array(orb_num, dtype=int)[sorted_indexes]
+        self.orbital_set.reset()
+        self.sorted_orbital_set = OrbitalSet([self.orbital_set[ oo ] for oo in orb_num])
+        self.eigenvectors = new_u[orb_num, : ]
+        return self.eigenvalues, self.eigenvectors
         
         
+  
+        
+        
+        
+        
+        
+        
+        
+     
+            
+            
 
 
 
 if __name__=="__main__":
-    nucl = Problem(Z=20,N=20, n_type='p', max_iter=4000, ub=15., debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/SkXDensityCa40p.dat"), exact_hess=True )
+    nucl = Problem(Z=20,N=20, n_type='p', max_iter=4000, ub=15., debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/rho_ca40_t0t3.dat"), exact_hess=True )
     #nucl = Problem(Z=20,n_type='p', max_iter=4000, ub=8., debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/rho_HO_20_particles_coupled_basis.dat") )
     #nucl = Problem(Z=8,N=8, n_type='p', max_iter=4000, ub=12., debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/SkXDensityO16p.dat"), exact_hess=True )
-    nucl = Problem(Z=82,N=108, n_type='p', max_iter=4000, ub=12., debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/SOGDensityPb208p.dat"), exact_hess=True )
+    #nucl = Problem(Z=82,N=106, n_type='p', max_iter=4000, ub=12., debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/SOGDensityPb208p.dat"), exact_hess=True )
     
     results, info = nucl.solve()
     
-    #nucl.setDensity(data=quickLoad("Densities/SkXDensityCa40p.dat"))
-    
-    
     solver = Solver(nucl)
-    x, check = solver.solve()
-    print (check)
-    
     
     # Benchmark
-    out = read("Potentials\pot_ca40_skx.dat")
+    out = read("Potentials\pot_ca40_t0t3.dat")
     r, vp = out[0], out[1]
-    
-    
-    out = read("Potentials\pot_ca40_skx_other_iks.dat")
-    r_other, vp_other = out[0], out[1]
     
     plt.figure(0)
     pot = solver.getPotential()
     plt.plot(solver.grid, pot - pot[3]+vp[3], '--', label="CV")
     plt.plot(r, vp, label="exact")
-    plt.plot(r_other, vp_other, label="other")
     plt.xlim(0.,10.); plt.ylim(-70.,25.)
     plt.grid(); plt.legend()
     
     
-    u = nucl.results['u']
+    u = solver.u
+    solver.diagonalize()
+    new_u = solver.eigenvectors
     plt.figure(1)
     for j in range(u.shape[0]):
-        plt.plot(nucl.grid, u[j,:], ls='--', label=nucl.orbital_set[j].name)
-        #plt.plot(nucl.grid, nucl.getU(nucl.results['start'])[j,:], label=nucl.orbital_set[j].name+"  INIT")
+        #plt.plot(nucl.grid, u[j,:], ls='--', label=nucl.orbital_set[j].name)
+        plt.plot(nucl.grid, new_u[j,:], ls='--', label=solver.sorted_orbital_set[j].name)
     plt.legend()
     
    

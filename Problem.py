@@ -106,7 +106,7 @@ class Problem(ipopt.problem):
          
         # Orbitals
         self.basis = basis if basis is not None else ShellModelBasis()
-        self.orbital_set = getOrbitalSet(self.n_particles, basis)
+        self.orbital_set = getOrbitalSet(self.n_particles, self.basis)
         self.n_orbitals = len(self.orbital_set)
         # Pairs (i,j) of non-orthogonal orbitals
         self.pairs = self.getPairs()
@@ -173,10 +173,13 @@ class Problem(ipopt.problem):
         name of the output folder inside Results
     
     """
-    def setDensity(self, rho=None, data=[], output_folder="Output"):
+    def setDensity(self, rho=None, data=[], ub=0, step=0, output_folder="Output"):
         if rho is None and len(data)==0:
             raise ValueError("Error: no valid density was provided")
         else:
+            if ub!=0.: self.ub = ub
+            if step!=0.: self.h = step
+    
             self.basis.reset()
             self.__init__(self.Z, self.N, rho, self.lb, self.ub, self.h, self.n_type, data, \
                self.basis, self.max_iter, self.rel_tol, self.constr_viol, output_folder, self.debug )
@@ -274,6 +277,7 @@ class Problem(ipopt.problem):
         for k, (i,j) in enumerate(self.pairs):
             f_i = x[i,:]; f_j = x[j, :]
             ortho[k] = np.sum( self.rho_r2 * f_i*f_j ) *self.h 
+            #if i!=j: ortho[k] = 0.
         return np.concatenate( (dens,ortho) )
         
     
@@ -436,6 +440,7 @@ class Problem(ipopt.problem):
                         fx.write("{rr:.2f}\t{xx:.10E}\n".format(rr=rr,xx=xx))
                         fu.write("{rr:.2f}\t{uu:.10E}\n".format(rr=rr,uu=uu))
         # Return results dictionary and ipopt info message
+        self.kinetic = float( self.results['obj'] )
         return self.results, info
     
     
