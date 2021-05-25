@@ -5,6 +5,7 @@
 import numpy as np
 from scipy.sparse import csc_matrix
 from scipy.sparse.linalg import spsolve, lsqr
+from scipy import integrate
 import matplotlib.pyplot as plt
 
 from Problem  import Problem, quickLoad
@@ -195,6 +196,7 @@ class Solver(object):
         energy eigenvalues epsilon
     """
     def _getVandE(self, lambd):
+        self.potential = lambd[:self.n_points]
         return lambd[:self.n_points], lambd[self.n_points:]
     
     """
@@ -272,9 +274,10 @@ class Solver(object):
     v: np.array(n_points)
         the potential
     """
-    def getPotential(self):
+    def getPotential(self, shift=True):
         x, check = self.solve()
         v,eps = self._getVandE(x)
+        if shift: self.shiftPot()
         return v
         
     
@@ -339,6 +342,25 @@ class Solver(object):
         self.sorted_orbital_set = OrbitalSet([self.orbital_set[ oo ] for oo in orb_num])
         self.eigenvectors = new_u[orb_num, : ]
         return self.eigenvalues, self.eigenvectors
+    
+    
+    def shiftPot(self):
+        cost = self.potential[-10]
+        print ("shift   ", cost )
+        self.potential -= cost
+        self.eigenvalues -= cost
+    
+    
+    def printAll(self):
+        out = self.problem.output_folder + "/Energies.dat"
+        with open(out, 'w') as fu:
+            st = "Kin\tsum(eps)\tint(rho*v)\n"
+            fu.write(st)
+            eps = np.sum(self.eigenvalues)
+            int_rhov = integrate.simpson(self.problem.tab_rho*self.potential*self.grid**2, self.grid) * 4.*np.pi
+            st = "{t:.5f}\t{eps:.5f}\t{integ:.5f}\n".format(t=self.problem.kinetic, eps=eps, integ=int_rhov)
+            fu.write(st)
+        self.problem.kinetic, eps, int_rhov
         
         
   
@@ -356,9 +378,9 @@ class Solver(object):
 
 
 if __name__=="__main__":
-    nucl = Problem(Z=20,N=20, n_type='p', max_iter=4000, ub=15., debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/rho_ca40_t0t3.dat"), exact_hess=True )
+    nucl = Problem(Z=20,N=20, n_type='p', max_iter=4000, ub=11.4, debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/rho_ca40_t0t3.dat"), exact_hess=True )
     #nucl = Problem(Z=20,n_type='p', max_iter=4000, ub=8., debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/rho_HO_20_particles_coupled_basis.dat") )
-    #nucl = Problem(Z=8,N=8, n_type='p', max_iter=4000, ub=12., debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/SkXDensityO16p.dat"), exact_hess=True )
+    nucl = Problem(Z=8,N=8, n_type='p', max_iter=4000, ub=9.6, debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/rho_o16_t0t3.dat"), exact_hess=True )
     #nucl = Problem(Z=82,N=106, n_type='p', max_iter=4000, ub=12., debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/SOGDensityPb208p.dat"), exact_hess=True )
     
     results, info = nucl.solve()
@@ -371,20 +393,22 @@ if __name__=="__main__":
     
     plt.figure(0)
     pot = solver.getPotential()
-    plt.plot(solver.grid, pot - pot[3]+vp[3], '--', label="CV")
-    plt.plot(r, vp, label="exact")
+    plt.plot(solver.grid, pot , '--', label="CV")
+    #plt.plot(solver.grid, pot - pot[3]+vp[3], '--', label="CV")
+    #plt.plot(r, vp, label="exact")
     plt.xlim(0.,10.); plt.ylim(-70.,25.)
     plt.grid(); plt.legend()
     
     
     u = solver.u
-    solver.diagonalize()
-    new_u = solver.eigenvectors
     plt.figure(1)
     for j in range(u.shape[0]):
         #plt.plot(nucl.grid, u[j,:], ls='--', label=nucl.orbital_set[j].name)
-        plt.plot(nucl.grid, new_u[j,:], ls='--', label=solver.sorted_orbital_set[j].name)
+        plt.plot(solver.grid, solver.eigenvectors[j,:], ls='--', label=solver.sorted_orbital_set[j].name)
     plt.legend()
+    
+    
+    solver.printAll()
     
    
     
