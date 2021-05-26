@@ -9,6 +9,7 @@ import numpy as np
 from findiff import FinDiff
 
 from Problem import Problem, quickLoad
+from Solver import Solver
 from Orbitals import ShellModelBasis
 from Energy import interpolate
 from scipy import integrate
@@ -54,7 +55,7 @@ def getKineticU(nucl, r, u):
 
 # NB: watch out the step!
 d_dx  = FinDiff(0, 0.1, 1, acc=4)
-d2_dx  = FinDiff(0, 0.1, 2, acc=4)
+# d2_dx  = FinDiff(0, 0.1, 2, acc=4)
 
 # defining problem
 nucl = Problem(Z=8,N=8,max_iter=4000, ub=9., debug='y', basis=ShellModelBasis(),\
@@ -62,9 +63,18 @@ nucl = Problem(Z=8,N=8,max_iter=4000, ub=9., debug='y', basis=ShellModelBasis(),
                constr_viol=1e-4, output_folder="O16n_t0t3_for_orbitals", rel_tol=1e-4)
 res, info = nucl.solve()
 
+solver = Solver(nucl)
+solver.solve()
+
 # loading IKS u
 name = "Results/O16n_t0t3_for_orbitals/u.dat"
 r,u,orb = loadUF(name)
+
+# post diagonalisation
+temp = u[-1]
+u[-1] = u[-2]
+u[-2] = temp
+u = solver.eigenvectors
 
 K_IKS = getKineticU(nucl, r, u)
 
@@ -109,3 +119,29 @@ for j in range(u.shape[0]):
     ax.set_ylabel(r"$\Delta$u(r)")
     # ax.set_xlim([0, 10])
     # ax.set_ylim([-10, 20])
+    
+#%% Ca40 n t0t3
+
+# defining problem
+nucl = Problem(Z=20,N=20,max_iter=4000, ub=11., debug='y', basis=ShellModelBasis(),\
+               data=quickLoad("Densities/rho_ca40_t0t3.dat"),\
+               constr_viol=1e-4, output_folder="Ca40n_t0t3_for_orbitals", rel_tol=1e-4)
+res, info = nucl.solve()
+
+
+# loading HF u 
+r_HF=[]; u_HF=[]
+r_temp, u_temp = quickLoad("HF_orbitals/Ca40n_t0t3_1s12.dat")
+r_HF.append(r_temp); u_HF.append(u_temp)
+r_temp, u_temp = quickLoad("HF_orbitals/Ca40n_t0t3_1p32.dat")
+r_HF.append(r_temp); u_HF.append(u_temp)
+r_temp, u_temp = quickLoad("HF_orbitals/Ca40n_t0t3_1p12.dat")
+r_HF.append(r_temp); u_HF.append(u_temp)
+r_temp, u_temp = quickLoad("HF_orbitals/Ca40n_t0t3_1d52.dat")
+r_HF.append(r_temp); u_HF.append(u_temp)
+r_temp, u_temp = quickLoad("HF_orbitals/Ca40n_t0t3_2s12.dat")
+r_HF.append(r_temp); u_HF.append(u_temp)
+r_temp, u_temp = quickLoad("HF_orbitals/Ca40n_t0t3_1d32.dat")
+r_HF.append(r_temp); u_HF.append(u_temp)
+
+print(getKineticU(nucl, r_HF, u_HF))

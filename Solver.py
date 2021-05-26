@@ -5,10 +5,11 @@
 import numpy as np
 from scipy.sparse import csc_matrix
 from scipy.sparse.linalg import spsolve, lsqr
+from scipy import integrate
 import matplotlib.pyplot as plt
 
 from Problem  import Problem, quickLoad
-from Orbitals import UncoupledHOBasis, ShellModelBasis
+from Orbitals import UncoupledHOBasis, ShellModelBasis, OrbitalSet
 from Constants import coeffSch
 from Misc import loadData, read
 
@@ -35,7 +36,7 @@ class Solver(object):
     """
     
     def __init__(self, problem, x=[] ):    
-        #assert ( isinstance(problem, Problem) )
+        assert ( isinstance(problem, Problem) )
         self.problem = problem
         self.data = loadData( problem.datafile )
         self._getInfoFromProblem()
@@ -44,12 +45,20 @@ class Solver(object):
         x = np.array(x)
         self.x = self.data['x'] if x.shape[0]==0 else x
         self._getOrbitals(self.x)
+        
+        # Square matrix of epsilon multipliers
+        self.eps_matrix = np.zeros( shape=(self.n_orbitals,self.n_orbitals) )
+        # Sorted eigenvalues and orbitals
+        self.sorted_orbital_set = None
+        self.eigenvalues = None
+        # Matrix of transformed orbitals (same shape as u)
+        self.eigenvectors= None
     
     """
     """
     def _getOrbitals(self, x):
         self.u, self.du, self.d2u = self.getU(x)
-        # self.b = self._getB(); self.A = self._getA()    # Old
+        #self.b = self._getB(); self.A = self._getA()    # Old
         self.A, self.b = self._AB()                     # New
         
         
@@ -91,7 +100,7 @@ class Solver(object):
                         if i==j:    # Normality
                             A[r,self.n_points+a] += -self.u[k,p]
                         else:       # Orthogonality     
-                            A[r,self.n_points+a] += -0.5* self.u[not_k,p]
+                            A[r,self.n_points+a] += -self.u[not_k,p]
 
                     """
                     if k==i:
@@ -109,7 +118,7 @@ class Solver(object):
                 
         
         
-    
+    """
     def _getB(self):
         _len = self.n_points*self.n_orbitals*(self.n_orbitals+1)//2
         B = np.zeros( _len )    #(_len, self.n_points) )
@@ -153,7 +162,7 @@ class Solver(object):
                                     if p==q and self.orbital_set[p].l==self.orbital_set[b].l and self.orbital_set[p].j==self.orbital_set[b].j:
                                         A[row, col] = - self.u[b,i]* self.u[p,i]
         return A
-        
+    """   
     
    
     """
@@ -187,6 +196,7 @@ class Solver(object):
         energy eigenvalues epsilon
     """
     def _getVandE(self, lambd):
+        self.potential = lambd[:self.n_points]
         return lambd[:self.n_points], lambd[self.n_points:]
     
     """
@@ -219,6 +229,8 @@ class Solver(object):
         precision parameter of the least-square solver (default 1e-5) (used only if max_prec is False)
     max_iter: int
         max. number of iterations (default 10000) (used only if max_prec is False)
+    diag: bool
+        compute the energy eigenvalues and the eigenvectors (rotated orbitals) (default True)
     
     Returns
     ----------
@@ -227,17 +239,14 @@ class Solver(object):
     check: bool
         closure test of the numerical procedure
     """
-    def solve(self, max_prec=True, tol=1e-10, max_iter=10000):
-        # print ("A\t",self.A.shape,"\tb\t",self.b.shape)
+    def solve(self, max_prec=True, tol=1e-10, max_iter=10000, diag=True):
         # Build sparse matrix
         self.A_sparse = csc_matrix(self.A, dtype=float)
         # Solve with least-squares
-        #x, istop, itn, r1norm = lsqr(self.A_sparse, self.b, atol=1e-10, btol=1e-10)[:4]
         if max_prec:
             x, istop, itn, r1norm = lsqr(self.A_sparse, self.b, atol=0., btol=0., conlim=0., show=True, iter_lim=50000)[:4]
         else:
             x, istop, itn, r1norm = lsqr(self.A_sparse, self.b, atol=tol, btol=tol, iter_lim=max_iter)[:4]
-        #self.everything =  lsqr(self.A_sparse, self.b, atol=0., btol=0.)
         check = np.allclose( self.A_sparse.dot(x), self.b )
         # Write potential to file
         with open(self.pot_file, 'w') as fv:
@@ -248,7 +257,12 @@ class Solver(object):
         with open(self.epsilon_file, 'w') as fe:
             v,eps = self._getVandE(x)
             for k, (i,j) in enumerate(self.pairs):
-                fe.write("{ni}\t{nj}\t{ep:.10E}\n".format(ni=self.orbital_set[i].getName(), nj=self.orbital_set[j].getName(), ep=v[k]))
+                fe.write("{ni}\t{nj}\t{ep:.10E}\n".format(ni=self.orbital_set[i].getName(), nj=self.orbital_set[j].getName(), ep=eps[k]))
+                # Fill epsilon matrix (symmetric)
+                self.eps_matrix[i,j] = eps[k]
+                self.eps_matrix[j,i] = eps[k]
+        if diag:
+            self.diagonalize(eps=self.eps_matrix)
         return x, check
     
     
@@ -260,12 +274,101 @@ class Solver(object):
     v: np.array(n_points)
         the potential
     """
-    def getPotential(self):
+    def getPotential(self, shift=True):
         x, check = self.solve()
         v,eps = self._getVandE(x)
+        if shift: self.shiftPot()
         return v
         
-        
+    
+    """
+    Diagonalizes the matrix eps of multipliers.
+    Returns the energy eigenvalues and a set of tranformed orbitals,
+    which are eigenvectors of the energy.
+    Moreover, the resulting orbitals are sorted according to their energy, as
+    in standard Hartree-Fock or Schroedinger eqs.
+    """
+    def diagonalize(self, eps=None):
+        if eps is None:
+            eps = self.eps_matrix
+        # Find subspaces and subsets of eps with same l and j (dictionaries)
+        subspaces = dict()
+        submatrices = dict()
+        # key: (l,j); value: list of orbital indeces   
+        self.problem.orbital_set.reset()
+        for k, q in enumerate(self.problem.orbital_set):
+            lj = (q.l, q.j)
+            if not (lj in subspaces.keys() ):
+                subspaces[ lj ] = []
+            # k-th orbitals belongs to lj subspace
+            subspaces[ lj ].append(k)
+        # Find submatrix of epsilon corresponding to given (l,j)
+        for lj, val in subspaces.items():
+            submatr = []
+            for row in val:
+                for col in val:
+                    submatr.append( eps[row,col] )
+            submatr = np.reshape(submatr, (len(val),len(val)) )
+            submatrices[ lj ] = submatr
+        # Diagonalize each submatrix 
+        orb_num, eigenvalues = [], []
+        new_u = self.u.copy()
+        for lj, matr in submatrices.items():
+            if matr.shape[0] > 1:
+                vals, vect = np.linalg.eig( matr )
+                # sort eigenvalues and eigenvectors 
+                sorted_indexes = np.argsort(vals)
+                vals = vals[sorted_indexes]
+                vect = vect[:,sorted_indexes]
+                # Apply orthogonal tranformation R to orbitals
+                # matr = vect @ vals @ inv(vect) => u's traform with inv(vect)
+                R = np.linalg.inv( vect )   # rotation matrix
+                for mi, m in enumerate(subspaces[ lj ]):
+                    new_u[m,:] = 0.
+                    for ni, n in enumerate(subspaces[ lj ]):
+                        new_u[m,:] += R[mi,ni]* self.u[n,:]
+            else:
+                vals = [matr[0,0],]
+            # Save eigenvalues and corresponding orbital number
+            for k, v in enumerate(vals):
+                eigenvalues.append(v)
+                orb_num.append( subspaces[lj][k] )
+                
+        # Sort ALL orbitals and eigenvalues
+        sorted_indexes = np.argsort(eigenvalues)
+        self.eigenvalues = np.array(eigenvalues)[sorted_indexes]
+        orb_num = np.array(orb_num, dtype=int)[sorted_indexes]
+        self.orbital_set.reset()
+        self.sorted_orbital_set = OrbitalSet([self.orbital_set[ oo ] for oo in orb_num])
+        self.eigenvectors = new_u[orb_num, : ]
+        # self.sum_eigenvalues = np.sum([self.sorted_orbital_set[k].occupation*self.eigenvalues[k]\
+                                      # for k in range(self.eigenvalues.shape[0])])
+        return self.eigenvalues, self.eigenvectors
+    
+    
+    def shiftPot(self):
+        cost = self.potential[-10]
+        # print ("shift   ", cost )
+        self.potential -= cost
+        self.eigenvalues -= cost
+        self.sum_eigenvalues = np.sum([self.sorted_orbital_set[k].occupation*self.eigenvalues[k]\
+                                      for k in range(self.eigenvalues.shape[0])])
+    
+    
+    def printAll(self):
+        out = self.problem.output_folder + "/Energies.dat"
+        with open(out, 'w') as fu:
+            st = "Kin\tsum(eps)\tint(rho*v)\n"
+            fu.write(st)
+            int_rhov = integrate.simpson(self.problem.tab_rho*self.potential*self.grid**2, self.grid) * 4.*np.pi
+            st = "{t:.5f}\t{eps:.5f}\t{integ:.5f}\n".format(t=self.problem.kinetic, eps=self.sum_eigenvalues, integ=int_rhov)
+            fu.write(st)
+        return self.problem.kinetic, self.sum_eigenvalues, int_rhov
+    
+    
+    def getDiagOrbitals(self):
+        return self.eigenvectors
+            
         
 
 

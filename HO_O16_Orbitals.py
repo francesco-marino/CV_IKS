@@ -44,7 +44,6 @@ def loadUF(file):
 
 ########### ORIGINAL PROBLEM
 n = 0
-
 if n==0:
     part = 20
     U_name = "Scaled_Potentials/HO_20_particles_L=0.62/u.dat"
@@ -55,11 +54,16 @@ elif n==1:
     U_name = "Scaled_Potentials/O16n_t0t3_L=0.6/u.dat"
     file = "Densities/rho_o16_t0t3.dat"
     nucl_name = "O16n_t0t3"
+elif n==2: 
+    part = 20
+    U_name = "Scaled_Potentials/O16n_t0t3_L=0.6/u.dat"
+    file = "Densities/rho_ca40_t0t3.dat"
+    nucl_name = "Ca40n_t0t3"
 
 #loading u functions from C++ code
 rC, uC, orbC = loadUF(U_name)
 
-nucl_orig = Problem(Z=part,N=part,max_iter=4000, ub=13., debug='y', basis=ShellModelBasis(),\
+nucl_orig = Problem(Z=part,N=part,max_iter=4000, ub=11, debug='y', basis=ShellModelBasis(),\
                data=quickLoad(file),\
                constr_viol=1e-4, output_folder=nucl_name+"_out", rel_tol=1e-4)
 
@@ -70,7 +74,7 @@ r = res['grid']
 ########### SCALED PROBLEM
 data = quickLoad(file)
 dens = interpolate(data[0], data[1])
-t = 0.62
+t = 1
 
 # loading f functions of the original problem and potentials from C++ code
 if n==0:
@@ -79,11 +83,14 @@ if n==0:
 elif n==1:
     F_name = "Results/"+nucl_name+"_out/f.dat"
     rCC, vCC = quickLoad("Scaled_Potentials\O16n_t0t3_L=0.6/Potential")
+elif n==2:
+    F_name = "Results/"+nucl_name+"_out/f.dat"
+    # rCC, vCC = quickLoad("Scaled_Potentials\Ca40n_t0t3_L=0.6/Potential")
     
     
 rho = scaleDensityFun(dens, t, 'l')
 
-cutoff = 1e-8
+cutoff = 1e-9
 for rr in np.arange(0.,50.,0.1):
     if( rho(rr) < cutoff ):
         bound = rr - 0.1
@@ -93,7 +100,7 @@ print("lambda: ", t)
 nucl_scaled = Problem(Z=part, N=part, n_type='p', max_iter=2000, ub=bound, debug='y', \
                   basis=ShellModelBasis(), rho=rho,\
                   exact_hess=True, output_folder=nucl_name+"_out"+str(t),\
-                      rel_tol=1e-4, constr_viol=1e-4)
+                  rel_tol=1e-4, constr_viol=1e-4)
 
 results, info = nucl_scaled.solve()
 scaled_u = results['u']
@@ -108,7 +115,7 @@ for j in range(u.shape[0]):
     ax.plot(r, u[j], label=nucl_orig.orbital_set[j].name+r" for $\lambda=1$")
     ax.plot(scaled_r, scaled_u[j], \
             label=nucl_scaled.orbital_set[j].name+r" Python for $\lambda=$"+str(t))
-    ax.plot(rC[j], uC[j], label=nucl_orig.orbital_set[j].name+" C++ for $\lambda=$"+str(t))
+    # ax.plot(rC[j], uC[j], label=nucl_orig.orbital_set[j].name+" C++ for $\lambda=$"+str(t))
     ax.plot(r, t**0.5 * u_fun(t*r), ls='--', label="theoretical scaling")   
     ax.legend(); ax.grid()
     ax.set_title("u(r) for lambda=" + str(t) + " " + nucl_name)
@@ -130,8 +137,12 @@ r2 = solver_scaled.grid
 v2 = solver_scaled.getPotential()
 
 # HF
-out = read("Potentials\pot_o16_t0t3.dat")
-rp, vp = out[0], out[1]
+if n==1:
+    out = read("Potentials\pot_o16_t0t3.dat")
+    rp, vp = out[0], out[1]
+elif n==2:
+    out = read("Potentials\pot_ca40_t0t3.dat")
+    rp, vp = out[0], out[1]
 
 # computing potential with theoretical scaling
 r_orig, f_orig, orb_orig = loadUF(F_name)
@@ -162,59 +173,142 @@ for j in range(f_orig.shape[0]):
     # ax.set_xlim([0, 10])
     # ax.set_ylim([-10, 20])
 """
-#%%
+
+if n==0:
+    shift = 3
+else: 
+    shift = -20
+
 # plotting potentials 
 fig, ax = plt.subplots(1,1,figsize=(5,5))
-ax.plot(r1, v1 - v1[3], label=r"Python")
+ax.plot(r1, v1 - v1[shift], label=r"Python")
 if n==0:
     r_HO = np.arange(0.,15.,0.1)
     v_HO = 0.5*m_p*(nuclearOmega(part))**2*r_HO**2
     ax.plot(r_HO, v_HO - v_HO[3], ls='--', label= "HO Theorical")
-elif n==1:
-    ax.plot(rp, vp - vp[3], ls='--', label= "HF")
+    
+    v_HO_lam_mod = 0.5*m_p*(t**2*nuclearOmega(part))**2*r_HO**2
+else:
+    ax.plot(rp, vp - vp[shift], ls='--', label= "HF")
 ax.legend(); ax.grid()
 ax.set_title(r"Potentials with $\lambda = 1$")
 ax.set_xlabel("r")
 ax.set_ylabel("v")
-ax.set_xlim([0, 11])
-ax.set_ylim([0, 350])
+if n==0:
+    ax.set_xlim([0, 11])
+    ax.set_ylim([0, 350])
+else:
+    ax.set_xlim([0, 10.5])
+    ax.set_ylim([-80, 5])
 
-v_HO_lam_mod = 0.5*m_p*(t**2*nuclearOmega(part))**2*r_HO**2
 
 fig, ax = plt.subplots(1,1,figsize=(5,5))
-# ax.plot(r1, v1 - v1[3], label=r"Python L=1")
-ax.plot(r2, v2 - v2[3], label=r"Python")
-ax.plot(rCC, vCC - vCC[3], ls='--', label=r"C++")
-# ax.plot(r_theor, v_theor - v_theor[3], ls='--', label= "Theoretical")
-# ax.plot(r_HO, v_HO - v_HO[3], ls='--', label= "Theorical not scaled", color="yellow")
-ax.plot(r_HO, v_HO_lam_mod - v_HO_lam_mod[3], ls='--', label= r"Applying scaling on $\nu$")
+ax.plot(r1, v1 - v1[shift], label=r"Python L=1")
+ax.plot(r2, v2 - v2[shift], label=r"Python")
+if n!=2: # C code
+    ax.plot(rCC, vCC - vCC[shift], ls='--', label=r"C++")
+ax.plot(r_theor, v_theor - v_theor[shift], ls='--', label= "Theoretical")
+if n==0: # HO
+    ax.plot(r_HO, v_HO - v_HO[3], ls='--', label= "Theorical not scaled", color="yellow")
+    ax.plot(r_HO, v_HO_lam_mod - v_HO_lam_mod[shift], ls='--', label= r"Applying scaling on $\nu$")
 ax.legend(); ax.grid()
 ax.set_title(r"Potentials with $\lambda = $ "+str(t))
 ax.set_xlabel("r")
 ax.set_ylabel("v")
-ax.set_xlim([0, 10.9])
-ax.set_ylim([0, 55])
+if n==0:
+    ax.set_xlim([0, 10.9])
+    ax.set_ylim([0, 55])
+else:
+    ax.set_xlim([0, 10.5])
+    ax.set_ylim([-80, 5])
 
-# %%
-## Potential energy calc
-v1 = v1 - v1[-10]
-elim = np.arange(-50,0,1)
-v = np.delete(v1, elim)
-r = np.delete(r1, elim)
-U1 = integrate.simpson(4*np.pi*r**2*dens(r)*v, r)
-print(U1)
 
-# HF ??
-U2 = integrate.simpson(4*np.pi*rp**2*dens(rp)*vp, rp)
-print(U2)
+#%%
+
+new_u = solver_orig.getDiagOrbitals()
+diag_orig_u = np.zeros_like(new_u)
+if part==20:
+    for j in range(new_u.shape[0]):
+        if solver_scaled.sorted_orbital_set[j].name=="2s 1/2" or \
+            solver_scaled.sorted_orbital_set[j].name=="1s 1/2":
+            diag_orig_u[j] = -new_u[j]
+        else:
+            diag_orig_u[j] = new_u[j]
+else:
+    diag_orig_u = new_u
+
+new_u = solver_scaled.getDiagOrbitals()
+diag_u = np.zeros_like(new_u)
+if part==20:
+    for j in range(new_u.shape[0]):
+        if solver_scaled.sorted_orbital_set[j].name=="2s 1/2" or \
+            solver_scaled.sorted_orbital_set[j].name=="1s 1/2":
+            diag_u[j] = -new_u[j]
+        else:
+            diag_u[j] = new_u[j]
+else:
+    diag_u = new_u
+    
+# """   
+for j in range(u.shape[0]):
+    fig, ax = plt.subplots(1,1,figsize=(5,5))
+    if solver_scaled.sorted_orbital_set[j].name=="2s 1/2":
+        j = j-1
+    elif solver_scaled.sorted_orbital_set[j].name=="1d 5/2":
+        j = j+1
+    ax.plot(r, diag_orig_u[j], label=solver_scaled.sorted_orbital_set[j].name+" post diag orig")
+    ax.plot(r2, diag_u[j], ls='--', label=solver_scaled.sorted_orbital_set[j].name+" post diag scaled")
+    ax.legend(); ax.grid()
+    ax.set_title("u(r) for lambda=" + str(t) + " " + nucl_name)
+    ax.set_xlabel("r")
+    ax.set_ylabel("u(r)")
+"""
+
+# plotting orbitals, both scaled, theoretical and from IKS inversion
+for j in range(u.shape[0]):
+    u_fun = interpolate(r, u[j])
+    
+    fig, ax = plt.subplots(1,1,figsize=(5,5))
+    ax.plot(r, u[j], label=nucl_orig.orbital_set[j].name+r" for $\lambda=1$")
+    ax.plot(scaled_r, scaled_u[j], \
+            label=nucl_scaled.orbital_set[j].name+r" Python for $\lambda=$"+str(t))
+    # ax.plot(rC[j], uC[j], label=nucl_orig.orbital_set[j].name+" C++ for $\lambda=$"+str(t))
+    ax.plot(r, t**0.5 * u_fun(t*r), ls='--', label="theoretical scaling")   
+    if solver_scaled.sorted_orbital_set[j].name=="2s 1/2":
+        j = j-1
+    elif solver_scaled.sorted_orbital_set[j].name=="1d 5/2":
+        j = j+1
+    ax.plot(r2, diag_u[j], label=solver_scaled.sorted_orbital_set[j].name+"post diag")
+    ax.legend(); ax.grid()
+    ax.set_title("u(r) for lambda=" + str(t) + " " + nucl_name)
+    ax.set_xlabel("r")
+    ax.set_ylabel("u(r)")
+    # ax.set_xlim([0, 10])
+    # ax.set_ylim([-10, 20])
+# """
+
 #%% HF u FUNCTIONS COMPARISON
 r_HF=[]; u_HF=[]
-r_temp, u_temp = quickLoad("HF_orbitals/O16n_t0t3_1s12.dat")
-r_HF.append(r_temp); u_HF.append(u_temp)
-r_temp, u_temp = quickLoad("HF_orbitals/O16n_t0t3_1p32.dat")
-r_HF.append(r_temp); u_HF.append(u_temp)
-r_temp, u_temp = quickLoad("HF_orbitals/O16n_t0t3_1p12.dat")
-r_HF.append(r_temp); u_HF.append(u_temp)
+if n==1:
+    r_temp, u_temp = quickLoad("HF_orbitals/O16n_t0t3_1s12.dat")
+    r_HF.append(r_temp); u_HF.append(u_temp)
+    r_temp, u_temp = quickLoad("HF_orbitals/O16n_t0t3_1p32.dat")
+    r_HF.append(r_temp); u_HF.append(u_temp)
+    r_temp, u_temp = quickLoad("HF_orbitals/O16n_t0t3_1p12.dat")
+    r_HF.append(r_temp); u_HF.append(u_temp)
+elif n==2:
+    r_temp, u_temp = quickLoad("HF_orbitals/Ca40n_t0t3_1s12.dat")
+    r_HF.append(r_temp); u_HF.append(u_temp)
+    r_temp, u_temp = quickLoad("HF_orbitals/Ca40n_t0t3_1p32.dat")
+    r_HF.append(r_temp); u_HF.append(u_temp)
+    r_temp, u_temp = quickLoad("HF_orbitals/Ca40n_t0t3_1p12.dat")
+    r_HF.append(r_temp); u_HF.append(u_temp)
+    r_temp, u_temp = quickLoad("HF_orbitals/Ca40n_t0t3_1d52.dat")
+    r_HF.append(r_temp); u_HF.append(u_temp)
+    r_temp, u_temp = quickLoad("HF_orbitals/Ca40n_t0t3_2s12.dat")
+    r_HF.append(r_temp); u_HF.append(u_temp)
+    r_temp, u_temp = quickLoad("HF_orbitals/Ca40n_t0t3_1d32.dat")
+    r_HF.append(r_temp); u_HF.append(u_temp)
 
 # plotting orbitals, both scaled, theoretical and from IKS inversion
 for j in range(u.shape[0]):
@@ -223,6 +317,11 @@ for j in range(u.shape[0]):
     fig, ax = plt.subplots(1,1,figsize=(5,5))
     ax.plot(r, u[j], label=nucl_orig.orbital_set[j].name+r" IKS Python")
     ax.plot(r_HF[j], u_HF[j], ls='--', label=nucl_orig.orbital_set[j].name+" HF" )
+    if solver_scaled.sorted_orbital_set[j].name=="2s 1/2":
+        j = j-1
+    elif solver_scaled.sorted_orbital_set[j].name=="1d 5/2":
+        j = j+1
+    ax.plot(r2, diag_u[j], label=nucl_orig.orbital_set[j].name+r" IKS Python post diag")
     ax.legend(); ax.grid()
     ax.set_title(r"u(r) for $\lambda=1$ " + nucl_name)
     ax.set_xlabel("r")
@@ -244,17 +343,76 @@ ho3d.append(HO_3D(1,2,nu)) # 1d 3/2
 # plotting orbitals, both scaled, theoretical and from IKS inversion
 for j in range(u.shape[0]):
     u_fun = interpolate(r, u[j])
-
     fig, ax = plt.subplots(1,1,figsize=(5,5))
     # ax.plot(r, u[j], label=nucl_orig.orbital_set[j].name+r" for $\lambda=1$")
     # ax.plot(scaled_r, scaled_u[j], \
             # label=nucl_scaled.orbital_set[j].name+r" Python for $\lambda=$"+str(t))
     # ax.plot(rC[j], uC[j], label=nucl_orig.orbital_set[j].name+" C++ for $\lambda=$"+str(t))
-    ax.plot(r, t**0.5 * u_fun(t*r), label=nucl_orig.orbital_set[j].name+" u(r) from IKS")   
-    ax.plot(r, t**1.5 * ho3d[j](t*r)*r, ls='--', label=nucl_orig.orbital_set[j].name+" analytical R(r)") 
+    # ax.plot(r, t**0.5 * u_fun(t*r), label=nucl_orig.orbital_set[j].name+" u(r) from IKS")   
+    ax.plot(r, t**1.5 * ho3d[j](t*r)*r, label=nucl_orig.orbital_set[j].name+" analytical R(r)")
+    if solver_scaled.sorted_orbital_set[j].name=="2s 1/2":
+        j = j-1
+    elif solver_scaled.sorted_orbital_set[j].name=="1d 5/2":
+        j = j+1
+    ax.plot(r2, diag_u[j], ls='--', label=solver_scaled.sorted_orbital_set[j].name+"post diag")
     ax.legend(); ax.grid()
     ax.set_title("u(r) for lambda=" + str(t) + " " + nucl_name)
     ax.set_xlabel("r")
     ax.set_ylabel("u(r)")
     # ax.set_xlim([0, 10])
     # ax.set_ylim([-10, 20])
+    
+    """
+    ax.plot(r, u[j], label=nucl_orig.orbital_set[j].name+r" for $\lambda=1$")
+    ax.plot(r, ho3d[j](r)*r, ls='--', label=nucl_orig.orbital_set[j].name+" analytical R(r)") 
+    """
+    
+   
+#%% PLOTTING THEORETICAL DIFFERENCES
+diff = []
+if n==0:
+    for j in range(u.shape[0]):
+        if solver_scaled.sorted_orbital_set[j].name=="2s 1/2":
+            x = j-1
+        elif solver_scaled.sorted_orbital_set[j].name=="1d 5/2":
+            x = j+1
+        else:
+            x=j
+        diff.append( ho3d[j](r2)*r2 - diag_u[x] )
+    R=r2
+else:
+    for j in range(u.shape[0]):
+        if solver_scaled.sorted_orbital_set[j].name=="2s 1/2":
+            x = j-1
+        elif solver_scaled.sorted_orbital_set[j].name=="1d 5/2":
+            x = j+1
+        else:
+            x=j
+        diag_u_fun = interpolate(r2, diag_u[x])
+        diff.append( u_HF[j] - diag_u_fun(r_HF[j]) )
+    R=r_HF[j]
+    
+for j in range(u.shape[0]):    
+    fig, ax = plt.subplots(1,1,figsize=(5,5))
+    
+    ax.plot(R, diff[j], label=solver_scaled.sorted_orbital_set[j].name+" Theor - IKS")
+    ax.legend(); ax.grid()
+    ax.set_title(r"$\Delta$u(r) for $\lambda$=1 " + nucl_name)
+    ax.set_xlabel("r")
+    ax.set_ylabel("u(r)")
+    ax.set_xlim([0, 10])
+    if n!=0:
+        ax.set_ylim([-0.002, 0.002])  
+    ax.ticklabel_format(axis="y", style="sci", scilimits=(0,0))
+# %%
+## Potential energy calc
+v1 = v1 - v1[-10]
+elim = np.arange(-50,0,1)
+v = np.delete(v1, elim)
+r = np.delete(r1, elim)
+U1 = integrate.simpson(4*np.pi*r**2*dens(r)*v, r)
+print(U1)
+
+# HF ??
+U2 = integrate.simpson(4*np.pi*rp**2*dens(rp)*vp, rp)
+print(U2)
