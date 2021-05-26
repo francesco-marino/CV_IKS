@@ -576,7 +576,18 @@ class Problem(ipopt.problem):
         u = np.zeros_like(x)
         for j in range(self.n_orbitals):
             u[j,:] = x[j,:] * self.grid * np.sqrt( 4.*np.pi * self.tab_rho )
-        return u    
+        return u 
+    
+    """
+    Computes the rescaled functions f(r) from the orbitals u(r).
+    Returns an array that can be directly used into ipopt routines.
+    """
+    def getXfromU(self, u):
+        x = np.zeros_like(u)
+        for j in range(self.n_orbitals):
+            x[j,:] = u[j,:] / (self.grid * np.sqrt( 4.*np.pi * self.tab_rho ))
+        x = x.flatten()
+        return x
     
     
     def integrate(self, f):
@@ -693,6 +704,8 @@ if __name__=="__main__":
     data, info = nucl.solve()
     data = loadData(nucl.output_folder+"\data")
     x = data['x']
+    
+ 
     
    
    

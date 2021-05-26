@@ -178,6 +178,21 @@ class Solver(object):
             d2u[j,:]= self.d_d2x(u[j,:])
         return u, du, d2u
     
+    
+    """
+    """
+    def updateU(self, new_u):
+        assert (new_u.shape==self.u.shape)
+        u, du, d2u = np.zeros_like(self.u), np.zeros_like(self.u), np.zeros_like(self.u)
+        for j in range(self.n_orbitals):
+            u[j,:] = new_u[j,:]
+            du[ j,:]= self.d_dx( u[j,:])
+            d2u[j,:]= self.d_d2x(u[j,:])
+        self.u, self.du, self.d2u = u, du, d2u
+        self._AB()
+        return u, du, d2u
+        
+                
     """
     Utility function.
     Split array of Lagrange multipliers into potential
@@ -338,9 +353,14 @@ class Solver(object):
         sorted_indexes = np.argsort(eigenvalues)
         self.eigenvalues = np.array(eigenvalues)[sorted_indexes]
         orb_num = np.array(orb_num, dtype=int)[sorted_indexes]
+        # Subscribe orbitals set
         self.orbital_set.reset()
-        self.sorted_orbital_set = OrbitalSet([self.orbital_set[ oo ] for oo in orb_num])
+        new_set = OrbitalSet([self.orbital_set[ oo ] for oo in orb_num])
+        self.orbital_set = new_set
+        #self.sorted_orbital_set = OrbitalSet([self.orbital_set[ oo ] for oo in orb_num])
+        # Subscribe u and its derivatives
         self.eigenvectors = new_u[orb_num, : ]
+        u, du, d2u = self.updateU(self.eigenvectors)
         return self.eigenvalues, self.eigenvectors
     
     
@@ -360,7 +380,7 @@ class Solver(object):
             int_rhov = integrate.simpson(self.problem.tab_rho*self.potential*self.grid**2, self.grid) * 4.*np.pi
             st = "{t:.5f}\t{eps:.5f}\t{integ:.5f}\n".format(t=self.problem.kinetic, eps=eps, integ=int_rhov)
             fu.write(st)
-        self.problem.kinetic, eps, int_rhov
+        return self.problem.kinetic, eps, int_rhov
         
         
   
@@ -370,19 +390,47 @@ class Solver(object):
         
         
         
-        
-     
-            
+"""   
+def kin_energy(solver):
+    assert ( isinstance(solver, Solver) )
+    tau = np.zeros_like(solver.grid)
+    kin = 0.
+    cp = 0.079577471
+    UNS4PI =7.9577470999999997/100.   # 1/(4pi)
+    print (UNS4PI)
+
+    for j in range(solver.n_points):
+        te = 0.
+        for i in range(solver.n_orbitals):
+            unl = solver.u[i,j]
+            x = solver.grid[j]
+            ll1 = solver.orbital_set[i].l*(solver.orbital_set[i].l +1 )
+            dunl = solver.du[i,j]
+            y = (-unl/x + dunl)/x
+            #y = dunl/x
+            y1= unl/x**2
+            y2 = (y*y + ll1*y1*y1) * solver.orbital_set[i].occupation
+            te += y2  
+        # loop sui punti
+        tau[j] = te * UNS4PI
+        kin += tau[j] * x**2 
+    # integral
+    hb = 19.438109125130669
+    
+    kin = kin*4.*np.pi * solver.problem.h *hb 
+    #kin = np.sum(tau * solver.grid**2) * 4.*np.pi * solver.problem.h * hb 
+    return tau, kin
+"""          
             
 
 
 
 if __name__=="__main__":
-    nucl = Problem(Z=20,N=20, n_type='p', max_iter=4000, ub=11.4, debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/rho_ca40_t0t3.dat"), exact_hess=True )
+    #nucl = Problem(Z=20,N=20, n_type='p', max_iter=4000, ub=11.4, debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/rho_ca40_t0t3.dat"), exact_hess=True )
     #nucl = Problem(Z=20,n_type='p', max_iter=4000, ub=8., debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/rho_HO_20_particles_coupled_basis.dat") )
-    nucl = Problem(Z=8,N=8, n_type='p', max_iter=4000, ub=9.6, debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/rho_o16_t0t3.dat"), exact_hess=True )
+    nucl = Problem(Z=8,N=8, n_type='p', h=0.1, max_iter=4000, ub=10, debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/rho_o16_t0t3.dat"), exact_hess=True )
     #nucl = Problem(Z=82,N=106, n_type='p', max_iter=4000, ub=12., debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/SOGDensityPb208p.dat"), exact_hess=True )
-    
+   
     results, info = nucl.solve()
     
     solver = Solver(nucl)
@@ -404,13 +452,27 @@ if __name__=="__main__":
     plt.figure(1)
     for j in range(u.shape[0]):
         #plt.plot(nucl.grid, u[j,:], ls='--', label=nucl.orbital_set[j].name)
-        plt.plot(solver.grid, solver.eigenvectors[j,:], ls='--', label=solver.sorted_orbital_set[j].name)
+        plt.plot(solver.grid, solver.eigenvectors[j,:], ls='--', label=solver.orbital_set[j].name)
     plt.legend()
     
     
     solver.printAll()
     
-   
+  
+    """
+    tau, kin = kin_energy(solver)
+    print ("Kinetic energy   ", kin)
+    plt.figure(20)
+    plt.plot(solver.grid, tau, '--', label="Tau")
+  
+    
+    from Misc import read
+    r, tau_t0t3, tau_r2 = read("tau_p_o16_t0t3.out")
+    plt.plot(r, tau_t0t3, label="HF")
+    plt.xlim(0.,5.)
+    plt.legend(); plt.grid()
+    """
+    
     
     
    
