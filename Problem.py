@@ -14,7 +14,7 @@ from findiff import FinDiff
 
 from Orbitals import ShellModelBasis,  OrbitalSet, getOrbitalSet
 from Constants import T, nuclearOmega, nuclearNu
-from Misc import simpsonCoeff, saveData, loadData
+from Misc import saveData, loadData
 from EigenFunctions import HO_3D
 
 
@@ -70,6 +70,8 @@ class Problem(ipopt.problem):
         name of the folder inside Results where the output is saved (default Output)
     exact_hess : bool
         use exact Hessian or the authomatic one (default True)
+    com_correction: bool
+        use center of mass correction (A-1)/A (default True)
     debug : str
         (not implemnted yet)
         
@@ -80,11 +82,13 @@ class Problem(ipopt.problem):
     """
     
     def __init__(self,Z,N=0,rho=None, lb=0.1,ub=10., h=0.1, n_type="p", data=[], basis=None,\
-        max_iter=2000, rel_tol=1e-3, constr_viol=1e-3, output_folder="Output", exact_hess=True, debug='n'):
+        max_iter=2000, rel_tol=1e-3, constr_viol=1e-3, output_folder="Output", exact_hess=True, \
+        com_correction=True, debug='n'):
         
         # Basic info.
         self.N = N
         self.Z = Z
+        self.A = N+Z
         # "n" or "p"
         self.n_type = n_type if (n_type=="p"or n_type=="n") else "p"
         # Either N or Z
@@ -114,6 +118,10 @@ class Problem(ipopt.problem):
         # Nu & omega (for starting wave functions)
         self.nu = nuclearNu(self.n_particles)
         self.omega = nuclearOmega(self.n_particles)
+        
+        # center of mass correction
+        self.com_correction = com_correction
+        self.T = T if com_correction is False else T*(self.A-1.)/self.A
         
         # Total n. variables 
         self.n_variables = self.n_orbitals*self.n_points
@@ -207,7 +215,7 @@ class Problem(ipopt.problem):
         d1x, d2x = self._deriv(x)
         # Sum_j (d_j integral_j)
         arr = np.array([ self.orbital_set[j].occupation * self._integral_j(x, d1x, d2x, j) for j in range(self.n_orbitals) ])
-        obj = (-T) * np.sum(arr)
+        obj = (-self.T) * np.sum(arr)
         return obj
     
     
@@ -236,26 +244,11 @@ class Problem(ipopt.problem):
         for q in range(self.n_orbitals):
             deg = self.orbital_set[q].occupation
             rhs = 2.*( self.C0[q,:]*x[q,:] + self.C1*d1x[q,:] + self.C2*d2x[q,:] )  
-            grad[q,:] = (-T)* deg * rhs * self.h
+            grad[q,:] = (-self.T)* deg * rhs * self.h
         # Reshape into 1d array
         return np.ndarray.flatten(grad)
     
     
-    
-    """
-    Second derivatives of the kinetic energy
-    """
-    def secondDer(self, x):
-        x = np.reshape(x, (self.n_orbitals,self.n_points) )
-        der2 = np.zeros_like(x)
-        d1x, d2x = self._deriv(x)
-        # Same q, same r
-        for q in range(self.n_orbitals):
-            deg = self.orbital_set[q].occupation
-            rhs = 2. * (self.C0[q,:] - 2.*self.C2/self.h**2 )
-            der2[q,:] = (-T)* deg * rhs * self.h
-        return der2
-        
     
     
     
@@ -379,7 +372,7 @@ class Problem(ipopt.problem):
             # Density constraint 
             diag = 2.*deg * lagrange[:self.n_points]
             # Objective function (diagonal part)
-            diag += obj_factor * deg*(-T) * 2. * (self.h*self.C0[q,:] - 2.*self.C2/self.h )
+            diag += obj_factor * deg*(-self.T) * 2. * (self.h*self.C0[q,:] - 2.*self.C2/self.h )
             #diag += obj_factor * deg*(-T) * 2. * self.C0[q,:]
             # Fill with the q=q, p=p' terms
             np.fill_diagonal( hess[q,:,q,:], diag )
@@ -388,7 +381,7 @@ class Problem(ipopt.problem):
             # Off-diagonal terms
             plus =  self.C1 + 2./self.h * self.C2     # p' = p+1
             rng = np.arange(self.n_points-1)
-            hess[q, rng, q, rng+1] = plus[:-1]* obj_factor * deg*(-T)
+            hess[q, rng, q, rng+1] = plus[:-1]* obj_factor * deg*(-self.T)
             
             """
             minus= -self.C1 + 2./self.h * self.C2     # p' = p-1

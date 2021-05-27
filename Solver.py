@@ -49,7 +49,7 @@ class Solver(object):
         # Square matrix of epsilon multipliers
         self.eps_matrix = np.zeros( shape=(self.n_orbitals,self.n_orbitals) )
         # Sorted eigenvalues and orbitals
-        self.sorted_orbital_set = None
+        #self.sorted_orbital_set = None
         self.eigenvalues = None
         # Matrix of transformed orbitals (same shape as u)
         self.eigenvectors= None
@@ -101,11 +101,6 @@ class Solver(object):
                             A[r,self.n_points+a] += -self.u[k,p]
                         else:       # Orthogonality     
                             A[r,self.n_points+a] += -self.u[not_k,p]
-
-                    """
-                    if k==i:
-                        A[r,self.n_points+a] += - self.u[j,p]
-                    """
                 # Update row number 
                 r += 1
         return A, B
