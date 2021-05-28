@@ -13,7 +13,7 @@ import ipopt
 from findiff import FinDiff
 
 from Orbitals import ShellModelBasis,  OrbitalSet, getOrbitalSet
-from Constants import T, nuclearOmega, nuclearNu
+from Constants import T, nuclearOmega, nuclearNu, coeffSch
 from Misc import saveData, loadData
 from EigenFunctions import HO_3D
 
@@ -121,6 +121,7 @@ class Problem(ipopt.problem):
         
         # center of mass correction
         self.com_correction = com_correction
+        self.coeffSch = coeffSch if self.com_correction is False else coeffSch*(self.A-1.)/self.A
         self.T = T if com_correction is False else T*(self.A-1.)/self.A
         
         # Total n. variables 

@@ -89,7 +89,7 @@ class Solver(object):
             l = self.orbital_set[k].l
             for p in range(self.n_points):
                 # Rhs  (k,p)
-                B[r]   = coeffSch * ( self.d2u[k,p] -l*(l+1)/self.grid[p]**2 * self.u[k,p] )
+                B[r]   = self.coeffSch * ( self.d2u[k,p] -l*(l+1)/self.grid[p]**2 * self.u[k,p] )
                 # Density constraints (first n_points constraints)
                 A[r,p] = self.u[k,p]
                 # Orthonormality constr. 
@@ -105,60 +105,6 @@ class Solver(object):
                 r += 1
         return A, B
         
-        
-                
-                
-            
-            
-                
-        
-        
-    """
-    def _getB(self):
-        _len = self.n_points*self.n_orbitals*(self.n_orbitals+1)//2
-        B = np.zeros( _len )    #(_len, self.n_points) )
-        for a in range(self.n_orbitals):
-            for b in range(a+1):
-                if (a,b) in self.pairs:
-                    l = self.orbital_set[a].l
-                    #row = (a*(a+1)//2 +b)*self.n_points
-                    for i in range(self.n_points):
-                        pos = self.n_points*(b + a*(a+1)//2 ) + i
-                        B[pos] = coeffSch * self.u[b,i]* ( self.d2u[a,i] -l*(l+1)/self.grid[i]**2 * self.u[a,i] )
-                    #B[row:row+self.n_points] = coeffSch * self.u[b,:]* ( self.d2u[a,:] -l*(l+1)/self.grid**2 * self.u[a,:] )
-        return np.ndarray.flatten(B)
-    
-    def _getA(self):
-        _len = self.n_points*self.n_orbitals*(self.n_orbitals+1)//2
-        _n_constr = self.n_points + self.n_orbitals*(self.n_orbitals+1)//2
-        A = np.zeros( (_len,_n_constr) )
-        for a in range(self.n_orbitals):
-            for b in range(a+1):
-                if (a,b) in self.pairs:
-                    for i in range(self.n_points):
-                        row = (a*(a+1)//2 +b)*self.n_points + i
-                        A[row,i] = self.u[b,i]*self.u[a,i]*2.
-                    #row = (a*(a+1)//2 +b)*self.n_points
-                    #A[row:row+self.n_points, :self.n_points] = np.diag( self.u[b,:]*self.u[a,:]*2. )
-        # Epsilon
-        for a in range(self.n_orbitals):
-            for b in range(a+1):
-                if (a,b) in self.pairs:
-                    for p in range(self.n_orbitals):
-                        for q in range(p+1):
-                            if a==p or a==q:
-                                for i in range(self.n_points):
-                                    row = (a*(a+1)//2 +b)*self.n_points + i
-                                    col = self.n_points + (p+1)*p//2 + q
-                                    if q<a and self.orbital_set[q].l==self.orbital_set[b].l and self.orbital_set[q].j==self.orbital_set[b].j:
-                                        A[row, col] = - self.u[b,i]* self.u[q,i]
-                                    if p>a and self.orbital_set[p].l==self.orbital_set[b].l and self.orbital_set[p].j==self.orbital_set[b].j:
-                                        A[row, col] = - self.u[b,i]* self.u[p,i]
-                                    if p==q and self.orbital_set[p].l==self.orbital_set[b].l and self.orbital_set[p].j==self.orbital_set[b].j:
-                                        A[row, col] = - self.u[b,i]* self.u[p,i]
-        return A
-    """   
-    
    
     """
     Get u, du/dr, d2u/dr2 (in matrix form) from an array x
@@ -219,6 +165,8 @@ class Solver(object):
         self.n_constr = self.problem.n_constr
         self.pairs= self.problem.pairs
         self.grid = self.problem.grid
+        self.coeffSch = self.problem.coeffSch
+        
         # Derivative operators
         self.d_dx = self.problem.d_dx
         self.d_d2x = self.problem.d_d2x
@@ -273,6 +221,7 @@ class Solver(object):
                 self.eps_matrix[j,i] = eps[k]
         if diag:
             self.diagonalize(eps=self.eps_matrix)
+            #x, check = self.solve(max_prec, tol, max_iter, diag=False)
         return x, check
     
     
@@ -423,7 +372,7 @@ def kin_energy(solver):
 if __name__=="__main__":
     #nucl = Problem(Z=20,N=20, n_type='p', max_iter=4000, ub=11.4, debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/rho_ca40_t0t3.dat"), exact_hess=True )
     #nucl = Problem(Z=20,n_type='p', max_iter=4000, ub=8., debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/rho_HO_20_particles_coupled_basis.dat") )
-    nucl = Problem(Z=8,N=8, n_type='p', h=0.1, max_iter=4000, ub=10, debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/rho_o16_t0t3.dat"), exact_hess=True )
+    nucl = Problem(Z=8,N=8, n_type='p', h=0.1, max_iter=4000, ub=11, debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/rho_o16_t0t3.dat"), exact_hess=True )
     #nucl = Problem(Z=82,N=106, n_type='p', max_iter=4000, ub=12., debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/SOGDensityPb208p.dat"), exact_hess=True )
    
     results, info = nucl.solve()
