@@ -296,6 +296,8 @@ class Solver(object):
         # Sort ALL orbitals and eigenvalues
         sorted_indexes = np.argsort(eigenvalues)
         self.eigenvalues = np.array(eigenvalues)[sorted_indexes]
+        self.sum_eigenvalues = np.sum([self.orbital_set[k].occupation*self.eigenvalues[k]\
+            for k in range(self.eigenvalues.shape[0])])
         orb_num = np.array(orb_num, dtype=int)[sorted_indexes]
         # Subscribe orbitals set
         self.orbital_set.reset()
@@ -304,7 +306,7 @@ class Solver(object):
         #self.sorted_orbital_set = OrbitalSet([self.orbital_set[ oo ] for oo in orb_num])
         # Subscribe u and its derivatives
         self.eigenvectors = new_u[orb_num, : ]
-        u, du, d2u = self.updateU(self.eigenvectors)
+        u, du, d2u = self.updateU(self.eigenvectors)      
         return self.eigenvalues, self.eigenvectors
     
     
@@ -313,6 +315,8 @@ class Solver(object):
         print ("shift   ", cost )
         self.potential -= cost
         self.eigenvalues -= cost
+        self.sum_eigenvalues = np.sum([self.orbital_set[k].occupation*self.eigenvalues[k]\
+            for k in range(self.eigenvalues.shape[0])])
     
     
     def printAll(self):
@@ -320,11 +324,10 @@ class Solver(object):
         with open(out, 'w') as fu:
             st = "Kin\tsum(eps)\tint(rho*v)\n"
             fu.write(st)
-            eps = np.sum(self.eigenvalues)
             int_rhov = integrate.simpson(self.problem.tab_rho*self.potential*self.grid**2, self.grid) * 4.*np.pi
-            st = "{t:.5f}\t{eps:.5f}\t{integ:.5f}\n".format(t=self.problem.kinetic, eps=eps, integ=int_rhov)
+            st = "{t:.5f}\t{eps:.5f}\t{integ:.5f}\n".format(t=self.problem.kinetic, eps=self.sum_eigenvalues, integ=int_rhov)
             fu.write(st)
-        return self.problem.kinetic, eps, int_rhov
+        return self.problem.kinetic, self.sum_eigenvalues, int_rhov
         
         
   
