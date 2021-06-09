@@ -64,12 +64,15 @@ class Problem(ipopt.problem):
     basis : orbital.OrbitalSet
         basis, described by quantum numbers nlj or nl (default orbital.ShellModelBasis, i.e. nlj)
     max_iter : int
+        maximum number of iteration of ipopt
     rel_tol : float
+        relative tolerance on the value of the objective function 
     constr_viol : float
+        max. absolute tolerance on the value of the constraints
     output_folder : str
         name of the folder inside Results where the output is saved (default Output)
     exact_hess : bool
-        use exact Hessian or the authomatic one (default True)
+        use the provided exact Hessian or, if False, an automatic approximate one (default True)
     com_correction: bool
         use center of mass correction (A-1)/A (default True)
     debug : str
@@ -662,26 +665,7 @@ def getSampleDensity(n_orb, basis=ShellModelBasis() ):
     return rho
         
 
-"""
-Things to do or check:
-    - integral_j: two formulas which should be equivalent, but are not
-    - gradient: *h or not? (Probably yes)
-    - jacobian: check if in the deriv. of the ortho. must put *h
-    - Hessian:  check everything
-    - save output in a dictionary or file
-    - understand coupled vs. uncoupled basis
-    - compute the potential
-    
-    - is the spline a good way to interpolate the density?
-    - check "solve" matrix
-    - implement logarithmic derivatives:
-        
-        d(ln f(x))/dx = 1/f(x) df/dx
-    =>  df/dx = f(x) d(ln f(x))/dx
-    The advantage is that, when f(x) is exponentially small, the derivative
-    of the logarithm can be computed in a more stable way numerically.
-    Is it worth implementing?
-"""
+
 
 if __name__=="__main__":
     

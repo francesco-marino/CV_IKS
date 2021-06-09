@@ -189,15 +189,18 @@ class Solver(object):
         max. number of iterations (default 10000) (used only if max_prec is False)
     diag: bool
         compute the energy eigenvalues and the eigenvectors (rotated orbitals) (default True)
-    
+    shift: bool
+        shift the potential and the eigenvalues by a costant (default True)
+    cost: float
+        shift pot. and eps. by -cost. If None, a simple ansatz is used
+        
     Returns
     ----------
     x: np.array(n_constr)
         Lagrange multipliers (v(r),epsilon)
-    check: bool
-        closure test of the numerical procedure
+    
     """
-    def solve(self, max_prec=True, tol=1e-10, max_iter=10000, diag=True):
+    def solve(self, max_prec=True, tol=1e-10, max_iter=10000, diag=True, shift=True, cost=None):
         # Build sparse matrix
         self.A_sparse = csc_matrix(self.A, dtype=float)
         # Solve with least-squares
@@ -205,7 +208,7 @@ class Solver(object):
             x, istop, itn, r1norm = lsqr(self.A_sparse, self.b, atol=0., btol=0., conlim=0., show=True, iter_lim=50000)[:4]
         else:
             x, istop, itn, r1norm = lsqr(self.A_sparse, self.b, atol=tol, btol=tol, iter_lim=max_iter)[:4]
-        check = np.allclose( self.A_sparse.dot(x), self.b )
+        #check = np.allclose( self.A_sparse.dot(x), self.b )
         # Write potential to file
         with open(self.pot_file, 'w') as fv:
             v,eps = self._getVandE(x)
@@ -222,7 +225,9 @@ class Solver(object):
         if diag:
             self.diagonalize(eps=self.eps_matrix)
             #x, check = self.solve(max_prec, tol, max_iter, diag=False)
-        return x, check
+        if shift: 
+            self.shiftPot(cost)
+        return x
     
     
     """
@@ -233,11 +238,12 @@ class Solver(object):
     v: np.array(n_points)
         the potential
     """
-    def getPotential(self, shift=True):
+    def getPotential(self, shift=True, cost=None):
         x, check = self.solve()
         v,eps = self._getVandE(x)
-        if shift: self.shiftPot()
+        if shift: self.shiftPot(cost)
         return v
+    
         
     
     """
@@ -309,9 +315,12 @@ class Solver(object):
         u, du, d2u = self.updateU(self.eigenvectors)      
         return self.eigenvalues, self.eigenvectors
     
-    
-    def shiftPot(self):
-        cost = self.potential[-10]
+    """
+    Shift the potential and the eigenvalues by  -cost
+    """
+    def shiftPot(self, cost=None):
+        if cost is None:
+            cost = self.potential[-10]
         print ("shift   ", cost )
         self.potential -= cost
         self.eigenvalues -= cost
