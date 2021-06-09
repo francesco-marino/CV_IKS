@@ -392,7 +392,7 @@ if __name__=="__main__":
     solver = Solver(nucl)
     
     # Benchmark
-    out = read("Potentials\pot_ca40_t0t3.dat")
+    out = read("Potentials/pot_ca40_t0t3.dat")
     r, vp = out[0], out[1]
     
     plt.figure(0)

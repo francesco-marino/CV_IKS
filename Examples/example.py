@@ -22,14 +22,14 @@ if __name__=="__main__":
     "quickLoad" is a practical routine to load the first two columns of 
     a file, interpreted as the postions (r) and densities (rho). 
     """
-    data = quickLoad("Densities/rho_o16_t0t3.dat")
+    data = quickLoad("../Densities/rho_ca40_t0t3.dat")
     
     
     """
     Setting up an IKS problem.
     Using a proton density for the O16 nucleus.
     """
-    nucl = Problem(Z=8,N=8, n_type='p', h=0.1, max_iter=4000, \
+    nucl = Problem(Z=20,N=20, n_type='p', h=0.1, max_iter=4000, \
         ub=11, basis=ShellModelBasis(), data=data, exact_hess=True )
     
     
@@ -57,7 +57,15 @@ if __name__=="__main__":
     plt.figure(0)
     plt.plot(solver.grid, solver.potential , '--', label="CV")
     
+    out = read("../Potentials/pot_ca40_t0t3.dat")
+    r, vp = out[0], out[1]
+    plt.plot(r, vp, '--', label="HF")
+    
+    plt.xlim(0.,10.); plt.ylim(-70.,25.)
+    plt.grid(); plt.legend()
+    
     # Print eigenvalues
+    print ("Eigenvalues")
     for j in range(solver.n_orbitals):
         print ( str(solver.orbital_set[j]), "\t", solver.eigenvalues[j] )
     
