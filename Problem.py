@@ -161,6 +161,7 @@ class Problem(ipopt.problem):
         self.u_file = self.output_folder + "/u.dat"
         self.pot_file = self.output_folder + "/potential.dat"
         self.epsilon_file  = self.output_folder + "/epsilon.dat"
+        self.eigen_file = self.output_folder + "/eigenvalues.dat"
         
         # Dictionary of results
         self.results  = dict()

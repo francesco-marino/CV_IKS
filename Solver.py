@@ -166,6 +166,7 @@ class Solver(object):
         self.pairs= self.problem.pairs
         self.grid = self.problem.grid
         self.coeffSch = self.problem.coeffSch
+        self.kinetic = self.problem.kinetic
         
         # Derivative operators
         self.d_dx = self.problem.d_dx
@@ -173,6 +174,7 @@ class Solver(object):
         # Output files
         self.pot_file = self.problem.pot_file
         self.epsilon_file  = self.problem.epsilon_file
+        self.eigen_file = self.problem.eigen_file
   
   
     
@@ -209,24 +211,34 @@ class Solver(object):
         else:
             x, istop, itn, r1norm = lsqr(self.A_sparse, self.b, atol=tol, btol=tol, iter_lim=max_iter)[:4]
         #check = np.allclose( self.A_sparse.dot(x), self.b )
-        # Write potential to file
-        with open(self.pot_file, 'w') as fv:
-            v,eps = self._getVandE(x)
-            for rr, vv in zip(self.grid, v):
-                fv.write("{rr:.2f}\t{vv:.10E}\n".format(rr=rr, vv=vv) )
-        # Write epsilon eigenvalues
-        with open(self.epsilon_file, 'w') as fe:
-            v,eps = self._getVandE(x)
-            for k, (i,j) in enumerate(self.pairs):
-                fe.write("{ni}\t{nj}\t{ep:.10E}\n".format(ni=self.orbital_set[i].getName(), nj=self.orbital_set[j].getName(), ep=eps[k]))
-                # Fill epsilon matrix (symmetric)
-                self.eps_matrix[i,j] = eps[k]
-                self.eps_matrix[j,i] = eps[k]
+        
+        v, eps = self._getVandE(x)
+        for k, (i,j) in enumerate(self.pairs):
+            # Fill epsilon matrix (symmetric)
+            self.eps_matrix[i,j] = eps[k]
+            self.eps_matrix[j,i] = eps[k]
+                
         if diag:
             self.diagonalize(eps=self.eps_matrix)
-            #x, check = self.solve(max_prec, tol, max_iter, diag=False)
         if shift: 
             self.shiftPot(cost)
+        
+        
+        
+        # Write potential to file
+        with open(self.pot_file, 'w') as fv:   
+            for rr, vv in zip(self.grid, self.potential):
+                fv.write("{rr:.2f}\t{vv:.10E}\n".format(rr=rr, vv=vv) )
+        # Write epsilon matrix
+        with open(self.epsilon_file, 'w') as fe:
+            #v,eps = self._getVandE(x)
+            for k, (i,j) in enumerate(self.pairs):
+                fe.write("{ni}\t{nj}\t{ep:.10E}\n".format(ni=self.orbital_set[i].getName(), nj=self.orbital_set[j].getName(), ep=eps[k]))
+        # Write eigenvalues
+        with open(self.eigen_file, 'w') as fe:
+            for j in range(self.n_orbitals):
+                fe.write("{ni}\t{ep:.10E}\n".format(ni=self.orbital_set[j].getName(), ep=self.eigenvalues[j]))
+                #print ( str(self.orbital_set[j]), "\t", self.eigenvalues[j] )
         return x
     
     
