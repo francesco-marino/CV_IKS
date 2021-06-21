@@ -223,7 +223,9 @@ class Solver(object):
         if shift: 
             self.shiftPot(cost)
         
-        
+        # Compute int(rho*v)
+        self.int_rho_v = integrate.simps(self.problem.tab_rho*self.potential*self.grid**2, self.grid) * 4.*np.pi
+ 
         
         # Write potential to file
         with open(self.pot_file, 'w') as fv:   
@@ -231,13 +233,12 @@ class Solver(object):
                 fv.write("{rr:.2f}\t{vv:.10E}\n".format(rr=rr, vv=vv) )
         # Write epsilon matrix
         with open(self.epsilon_file, 'w') as fe:
-            #v,eps = self._getVandE(x)
             for k, (i,j) in enumerate(self.pairs):
                 fe.write("{ni}\t{nj}\t{ep:.10E}\n".format(ni=self.orbital_set[i].getName(), nj=self.orbital_set[j].getName(), ep=eps[k]))
         # Write eigenvalues
         with open(self.eigen_file, 'w') as fe:
             for j in range(self.n_orbitals):
-                fe.write("{ni}\t{ep:.10E}\n".format(ni=self.orbital_set[j].getName(), ep=self.eigenvalues[j]))
+                fe.write("{nj}\t{ep:.10E}\n".format(nj=self.orbital_set[j].getName(), ep=self.eigenvalues[j]))
                 #print ( str(self.orbital_set[j]), "\t", self.eigenvalues[j] )
         return x
     

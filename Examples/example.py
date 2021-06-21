@@ -31,7 +31,7 @@ if __name__=="__main__":
     """
     nucl = Problem(Z=20,N=20, n_type='p', h=0.1, max_iter=4000, \
         ub=11, basis=ShellModelBasis(), data=data, \
-        output_folder="17_giugno", com_correction=True )
+        output_folder="21_giugno", com_correction=True )
     
     
     """
