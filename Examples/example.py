@@ -30,7 +30,8 @@ if __name__=="__main__":
     Using a proton density for the O16 nucleus.
     """
     nucl = Problem(Z=20,N=20, n_type='p', h=0.1, max_iter=4000, \
-        ub=11, basis=ShellModelBasis(), data=data, exact_hess=True )
+        ub=11, basis=ShellModelBasis(), data=data, \
+        output_folder="17_giugno", com_correction=True )
     
     
     """
@@ -47,12 +48,12 @@ if __name__=="__main__":
     solver = Solver(nucl)
     
     """
-    Pot. and eigenvalues are shifted automatically, but one can pass
-    an offset (cost) to be subtracted.
+    Pot. and eigenvalues are shifted automatically if cost=None, but one can pass
+    a user-defined offset to be subtracted.
     """
     solver.solve(shift=True, cost=None)
     
-    
+   
     # Plot the potential
     plt.figure(0)
     plt.plot(solver.grid, solver.potential , '--', label="CV")
