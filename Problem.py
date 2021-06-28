@@ -233,6 +233,24 @@ class Problem(ipopt.problem):
         return np.sum( arr*self.h )
     
     
+    """
+    Kinetic density as in skyrme HF
+    """
+    def kinDensity(self,u):
+        arr = np.zeros_like(u)
+        du = np.zeros_like(u)
+        for j in range(self.n_orbitals):
+            du[ j,:]= self.d_dx( u[j,:])
+            
+            ll1 = self.orbital_set[j].l*(self.orbital_set[j].l +1 )
+            arr[j,:] = ( (du[j,:] - u[j,:]/self.grid)/self.grid )**2 
+            arr[j,:] += ll1* ( u[j,:]/self.grid**2 )**2
+        
+        tau = np.zeros(self.n_points)
+        tau = np.sum( [self.orbital_set[i].occupation* arr[i,:] for i in range(self.n_orbitals)], axis=0)
+        tau = tau/(4.*np.pi)
+        return tau
+    
         
     """
     Gradient of the objective function dO/d[f_q(p)]
@@ -439,6 +457,7 @@ class Problem(ipopt.problem):
                         fu.write("{rr:.2f}\t{uu:.10E}\n".format(rr=rr,uu=uu))
         # Return results dictionary and ipopt info message
         self.kinetic = float( self.results['obj'] )
+        self.kinetic_density = self.kinDensity(u)
         return self.results, info
     
     

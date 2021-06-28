@@ -167,6 +167,7 @@ class Solver(object):
         self.grid = self.problem.grid
         self.coeffSch = self.problem.coeffSch
         self.kinetic = self.problem.kinetic
+        self.kinetic_density = self.problem.kinetic_density
         
         # Derivative operators
         self.d_dx = self.problem.d_dx
