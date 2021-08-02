@@ -36,6 +36,14 @@ def interpolate(r, f, get_der=False):
     else: 
         d1 = lambda x: interp.splev(x, tck, der=1)  
         return ff, d1
+    
+    
+    
+    
+def getCutoff(rho, cut=1e-8):
+        for rr in np.arange(0.,50.,0.1):
+            if( rho(rr) < cut ):
+                return rr - 0.1
 
 
 """
@@ -65,7 +73,9 @@ def read(filename):
             lists[j] = np.array( lists[j], dtype=float )
     return lists
 
-
+"""
+Check if string can be converted to float
+"""
 def is_float_try(stri):
     try:
         float(stri)
@@ -79,21 +89,3 @@ def floatCompare(a, floats, **kwargs):
   return np.any(np.isclose(a, floats, **kwargs))
 
 
-" Simpson's integration rule "
-def simpsonCoeff(i,N):
-    if i==0 or i==N-1:
-        cc=1.
-    else:
-        cc = 4. if i%2==1 else 2.
-    return cc
-
-
-"""
-int( f(x) dx ) with a<=x<=b, using Simpson's rule
-"""
-def integral(f, a, b, h):
-    f= array(f)
-    N = int( (b-a)/h ) + 1
-    #x = linspace(a,b,N)
-    coeff = array([ simpsonCoeff( j, N ) for j in range(N) ]) * h/3.
-    return sum(f*coeff)

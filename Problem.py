@@ -169,8 +169,17 @@ class Problem(ipopt.problem):
         
         # Initialize ipopt
         self._setIpopt(max_iter,rel_tol,constr_viol,exact_hess)
+        self.n_runs = 0
         
         
+    
+    def __copy__(self):
+        return Problem(self.Z,self.N,self.rho,self.lb,self.ub, \
+            self.h, self.n_type, self.data, self.basis,\
+            self.max_iter,self.rel_tol, self.constr_viol, \
+            self.output_folder, self.exact_hess, \
+            self.com_correction, self.debug)
+    
     
     
     """
@@ -356,11 +365,6 @@ class Problem(ipopt.problem):
             # p'=p+1     TODO use "upper diagonal" function os something like that 
             for p in range(0,self.n_points-1):
                 hess[q, p, q, p+1] = 1.
-            """
-            # p'=p-1     TODO do we need this? hess is a triangular matrix
-            for p in range(1,self.n_points):
-                hess[q, p, q, p-1] = 1.
-            """
             
         # Orthogonality
         for (i,j) in self.pairs:
@@ -405,18 +409,7 @@ class Problem(ipopt.problem):
             plus =  self.C1 + 2./self.h * self.C2     # p' = p+1
             rng = np.arange(self.n_points-1)
             hess[q, rng, q, rng+1] = plus[:-1]* obj_factor * deg*(-self.T)
-            
-            """
-            minus= -self.C1 + 2./self.h * self.C2     # p' = p-1
-            rng = np.arange(1,self.n_points)
-            hess[q, rng, q, rng-1] = minus[1:]* obj_factor * deg*(-T)
-            """
-            """
-            for p in range(0,self.n_points-1):
-                hess[q, p, q, p+1] = plus[p] * obj_factor * deg*(-T)
-            for p in range(1,self.n_points):
-                hess[q, p, q, p-1] = minus[p]* obj_factor * deg*(-T)
-            """
+   
             
         # Orthonormality constraints
         for k, (i,j) in enumerate(self.pairs):
@@ -430,7 +423,10 @@ class Problem(ipopt.problem):
         return hess[ self.hessianstructure() ]
             
    
-    
+    """
+    repeat:
+        if convergence is not reached, try again with more permissive tolerances
+    """
     def solve(self):
         # Set the starting point
         st = self.getStartingPoint() 
@@ -458,6 +454,30 @@ class Problem(ipopt.problem):
         # Return results dictionary and ipopt info message
         self.kinetic = float( self.results['obj'] )
         self.kinetic_density = self.kinDensity(u)
+        
+        
+        
+        """
+        # TODO include other stopping conditions;
+        # *2 or e.g. *4?
+        # Check the convergence of the ipopt algorithm
+        good = b'Algorithm terminated successfully at a locally optimal point, satisfying the convergence tolerances (can be specified by options).'
+        decent = b'Algorithm stopped at a point that was converged, not to "desired" tolerances, but to "acceptable" tolerances (see the acceptable-... options).'
+        if repeat:
+            if info['status_msg']==good:
+                msg="\nDONE! Well-converged results"
+                print (msg)
+            elif info['status_msg']!=good and self.n_runs<5:
+                self.n_runs += 1
+                self.rel_tol, self.constr_viol = 2.*self.rel_tol, 2.*self.constr_viol
+                msg="\nWARNING: \nThe algorithm could not converge well. Trying again with tol={} \
+                and constr_viol_tol={}\n\n".format(self.rel_tol,self.constr_viol)
+                print (msg)
+                self.solve(repeat=True)    
+            else:
+                msg = "\nDone\n"
+                print (msg, info['status_msg'])
+        """
         return self.results, info
     
     
@@ -470,8 +490,18 @@ class Problem(ipopt.problem):
         if iter_count%10==0:
             print ("Objective value at iteration #%d is %g" % (iter_count, obj_value))
                    
-                   
-                   
+    
+    """
+    Check the convergence of the ipopt algorithm. Try running with
+    looser tolerances.
+    """
+    def checkStatus(self, status):
+        pass
+        
+        
+        
+        
+        
     """
     Set ipopt parameters. Call ipopt.Problem constructor
     """
@@ -580,7 +610,9 @@ class Problem(ipopt.problem):
         self.addOption(b"hessian_constant", b"no")
         self.addOption(b"hessian_approximation", b"exact") if exact_hess \
             else self.addOption(b'hessian_approximation', b'limited-memory')
-        
+            
+        #self.addOption(b'mumps_permuting_scaling', 0)
+        self.addOption(b'mumps_pivot_order', 2)
         
         
     """
@@ -606,10 +638,6 @@ class Problem(ipopt.problem):
         x = x.flatten()
         return x
     
-    
-    def integrate(self, f):
-        # assert ( f.shape[0]==self.h_i.shape[0] )
-        return np.sum( f*self.h_i )
     
     
     """
