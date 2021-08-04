@@ -331,12 +331,15 @@ class Solver(object):
     """
     def shiftPot(self, cost=None):
         if cost is None:
-            cost = self.potential[-10]
+            #cost = self.potential[-10]
+            j = findPlateu(self.potential, n=5, tol=0.1)
+            cost = self.potential[j]
         print ("shift   ", cost )
         self.potential -= cost
         self.eigenvalues -= cost
         self.sum_eigenvalues = np.sum([self.orbital_set[k].occupation*self.eigenvalues[k]\
             for k in range(self.eigenvalues.shape[0])])
+    
     
     
     def printAll(self):
@@ -352,7 +355,37 @@ class Solver(object):
         
   
         
-        
+"""
+Find the intial position of a 'plateu' in an array v.
+The array is scanned seeking a sequence of points where the variation
+between elements is below a given treshhold.
+The position j of the first element that satifies these conditions is returned.
+
+Parameters
+----------
+    v: list of np.array
+    n: int
+        minimal length of a plateu
+    tol: float
+        max. diff. between two elements allowed 
+    st: int
+        starting position
+
+"""
+def findPlateu(v, n=3, tol=0.05, st=0):
+    v = np.array(v)
+    for j in range(st, v.shape[0] ):
+        flag = True
+        for k in range(0,n+1):
+            #print(j,j+k)
+            ind = np.min((v.shape[0]-1, j+k))
+            if np.abs(v[j]-v[ind]) > tol:
+                flag = False
+                break
+        if flag == True:
+            return j
+    return j
+    
         
         
         
@@ -362,7 +395,7 @@ class Solver(object):
 if __name__=="__main__":
     #nucl = Problem(Z=20,N=20, n_type='p', max_iter=4000, ub=11.4, debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/rho_ca40_t0t3.dat"), exact_hess=True )
     #nucl = Problem(Z=20,n_type='p', max_iter=4000, ub=8., debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/rho_HO_20_particles_coupled_basis.dat") )
-    nucl = Problem(Z=8,N=8, n_type='p', h=0.1, max_iter=4000, ub=11, debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/rho_o16_t0t3.dat"), exact_hess=True )
+    nucl = Problem(Z=8,N=8, n_type='p', h=0.1, max_iter=4000, ub=9, debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/rho_o16_t0t3.dat"), exact_hess=True )
     #nucl = Problem(Z=82,N=106, n_type='p', max_iter=4000, ub=12., debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/SOGDensityPb208p.dat"), exact_hess=True )
    
     results, info = nucl.solve()
@@ -374,11 +407,11 @@ if __name__=="__main__":
     r, vp = out[0], out[1]
     
     plt.figure(0)
-    pot = solver.getPotential()
+    pot = solver.getPotential( shift=False, cost=None )
     plt.plot(solver.grid, pot , '--', label="CV")
     #plt.plot(solver.grid, pot - pot[3]+vp[3], '--', label="CV")
     #plt.plot(r, vp, label="exact")
-    plt.xlim(0.,10.); plt.ylim(-70.,25.)
+    plt.xlim(0.,10.); plt.ylim(np.min(pot)-5., 10.)
     plt.grid(); plt.legend()
     
     
@@ -389,7 +422,7 @@ if __name__=="__main__":
     plt.legend()
     
     
-    solver.printAll()
+    #solver.printAll()
     
   
     
