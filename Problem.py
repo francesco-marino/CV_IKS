@@ -97,22 +97,10 @@ class Problem(ipopt.problem):
         # Either N or Z
         self.n_particles = Z if self.n_type=="p" else N
         
-        # Box
-        self.lb = lb
-        self.ub = ub
-        self.h  = h
-        self.n_points = int( (ub-lb)/h ) + 1
-        # Spatial grid [lb, lb+h, ..., ub]
-        self.grid = np.linspace(lb, ub, self.n_points)
-        # Integration factors
-        # self.h_i  = np.array([simpsonCoeff(i,self.n_points) for i in range(self.n_points) ]) * self.h/3.
         
-        # Derivative operators
-        self.d_dx  = FinDiff(0, self.h, 1, acc=4)
-        self.d_d2x = FinDiff(0, self.h, 2, acc=4)
-         
         # Orbitals
         self.basis = basis if basis is not None else ShellModelBasis()
+        self.basis.reset()
         self.orbital_set = getOrbitalSet(self.n_particles, self.basis)
         self.n_orbitals = len(self.orbital_set)
         # Pairs (i,j) of non-orthogonal orbitals
@@ -127,14 +115,25 @@ class Problem(ipopt.problem):
         self.coeffSch = coeffSch if self.com_correction is False else coeffSch*(self.A-1.)/self.A
         self.T = T if com_correction is False else T*(self.A-1.)/self.A
         
-        # Total n. variables 
-        self.n_variables = self.n_orbitals*self.n_points
-        # N. constraints (density + orthonormality)
-        self.n_constr = self.n_points + len(self.pairs)
         
-        # Density and its derivatives
+        # Density 
         self.data = data
         self.rho = rho if rho is not None else self.getRhoFromData( data[0], data[1] )
+        
+        """
+        # Box
+        self.lb = lb
+        self.ub = ub
+        self.h  = h
+        self.n_points = int( (ub-lb)/h ) + 1
+        # Spatial grid [lb, lb+h, ..., ub]
+        self.grid = np.linspace(lb, ub, self.n_points)
+          
+        # Derivative operators
+        self.d_dx  = FinDiff(0, self.h, 1, acc=4)
+        self.d_d2x = FinDiff(0, self.h, 2, acc=4)
+         
+        
         # Tabulate rho and its derivatives
         self.tab_rho = self.rho(self.grid)
         self.d1_rho  = self.d_dx( self.tab_rho)
@@ -143,6 +142,11 @@ class Problem(ipopt.problem):
         self.rho_r2  = 4.*np.pi * self.tab_rho * np.power(self.grid, 2)       
         # C0,C1,C2
         self.C0, self.C1, self.C2 = self._getCFunctions()
+        """
+        
+        # Set all grid-related variables
+        self.setGrid(lb, ub, h)
+        
         
         
         # Create the output directory
@@ -173,13 +177,49 @@ class Problem(ipopt.problem):
         
         
     
+    
+        
+        
+    """
+    Configure the spatial mesh.
+    """
+    def setGrid(self, lb, ub, h):
+        # Box
+        self.lb = lb
+        self.ub = ub
+        self.h  = h
+        self.n_points = int( (ub-lb)/h ) + 1
+        # Spatial grid [lb, lb+h, ..., ub]
+        self.grid = np.linspace(lb, ub, self.n_points)
+        
+        # Derivative operators
+        self.d_dx  = FinDiff(0, self.h, 1, acc=4)
+        self.d_d2x = FinDiff(0, self.h, 2, acc=4)
+        
+        # Tabulate rho and its derivatives
+        self.tab_rho = self.rho(self.grid)
+        self.d1_rho  = self.d_dx( self.tab_rho)
+        self.d2_rho  = self.d_d2x(self.tab_rho)   
+        # Integration factor: 4 pi r^2 rho^2 
+        self.rho_r2  = 4.*np.pi * self.tab_rho * np.power(self.grid, 2)       
+        # C0,C1,C2
+        self.C0, self.C1, self.C2 = self._getCFunctions()
+        
+        # Total n. variables 
+        self.n_variables = self.n_orbitals*self.n_points
+        # N. constraints (density + orthonormality)
+        self.n_constr = self.n_points + len(self.pairs)
+        
+    
+    
+    
     def __copy__(self):
+        self.basis.reset()
         return Problem(self.Z,self.N,self.rho,self.lb,self.ub, \
             self.h, self.n_type, self.data, self.basis,\
             self.max_iter,self.rel_tol, self.constr_viol, \
             self.output_folder, self.exact_hess, \
             self.com_correction, self.debug)
-    
     
     
     """
@@ -422,11 +462,8 @@ class Problem(ipopt.problem):
         hess = np.reshape( hess, (self.n_variables,self.n_variables) )
         return hess[ self.hessianstructure() ]
             
-   
-    """
-    repeat:
-        if convergence is not reached, try again with more permissive tolerances
-    """
+    
+    
     def solve(self):
         # Set the starting point
         st = self.getStartingPoint() 
@@ -481,6 +518,39 @@ class Problem(ipopt.problem):
         return self.results, info
     
     
+    
+    # HERE
+    """
+    Try different parameters until convergence is reached
+    def scan(self):
+        ub_in, rel_tol_in, constr_viol_in = self.ub, self.rel_tol, self.constr_viol
+        good = b'Algorithm terminated successfully at a locally optimal point, satisfying the convergence tolerances (can be specified by options).'
+        rels = np.array((1.,2.,5.,10.,20.))*rel_tol_in
+        viols = np.array((1.,2.,5.,10.,20.))*constr_viol_in
+        
+        for constr_viol, rel_tol in zip(viols, rels):
+            #self._setIpopt(self.max_iter, rel_tol, constr_viol, self.exact_hess)
+            for ub in (ub_in, ub_in-1., ub_in+1.):
+                #self.setGrid(self.lb, ub, self.h)
+                
+                print ("here     ", ub)
+                
+                self.__init__(self.Z,self.N,self.rho,self.lb, ub, \
+                    self.h, self.n_type, self.data, self.basis,\
+                    self.max_iter, rel_tol, constr_viol, \
+                    self.output_folder, self.exact_hess, \
+                    self.com_correction, self.debug)
+                
+                
+                results, info = self.solve()
+                if info['status_msg']==good:
+                    msg="\nDONE! Well-converged results"
+                    print (msg)
+                    msg ='\nupper bound = {}\trel_tol={}\tconstr_viol={}'.format(ub,rel_tol,constr_viol)
+                    return results, info
+    """
+    
+    
     """
     Intermediate callback
     """
@@ -505,7 +575,7 @@ class Problem(ipopt.problem):
     """
     Set ipopt parameters. Call ipopt.Problem constructor
     """
-    def _setIpopt(self,max_iter,rel_tol,constr_viol, exact_hess=False):      
+    def _setIpopt(self, max_iter,rel_tol,constr_viol, exact_hess=False):      
         # Options
         self.max_iter = max_iter
         self.rel_tol = rel_tol
@@ -604,7 +674,7 @@ class Problem(ipopt.problem):
         # Watch out! Put b (binary) in front of option strings    
         self.addOption(b'mu_strategy', b'adaptive')
         self.addOption(b'max_iter', self.max_iter)
-        self.addOption(b'tol', self.rel_tol)
+        self.addOption('tol', self.rel_tol)
         self.addOption(b'constr_viol_tol', self.constr_viol)
         self.addOption(b"output_file", b"ipopt.out")
         self.addOption(b"hessian_constant", b"no")
@@ -655,7 +725,41 @@ class Problem(ipopt.problem):
     
     
         
+# HERE
+def scan(probl):
+    assert ( isinstance(probl, Problem) )
+    ub_in, rel_tol_in, constr_viol_in = probl.ub, probl.rel_tol, probl.constr_viol
+    data_in, rho_in = probl.data, probl.rho
     
+    good = b'Algorithm terminated successfully at a locally optimal point, satisfying the convergence tolerances (can be specified by options).'
+    rels = np.array((1.,2.,5.,10.,20.))*rel_tol_in
+    viols = np.array((1.,2.,5.,10.,20.))*constr_viol_in
+    
+    for constr_viol, rel_tol in zip(viols, rels):
+        #self._setIpopt(self.max_iter, rel_tol, constr_viol, self.exact_hess)
+        for ub in (ub_in, ub_in-1., ub_in+1.):
+            #self.setGrid(self.lb, ub, self.h)
+            
+            msg ='\nupper bound = {}\trel_tol={}\tconstr_viol={}'.format(ub,rel_tol,constr_viol)
+            print (msg)
+               
+            #new_probl = None
+            new_probl = Problem(probl.Z,probl.N,rho_in,probl.lb, ub, \
+                probl.h, probl.n_type, data_in, ShellModelBasis(),\
+                probl.max_iter, float(rel_tol), float(constr_viol), \
+                probl.output_folder, probl.exact_hess, \
+                probl.com_correction, probl.debug)
+            
+            
+            results, info = new_probl.solve()
+            if info['status_msg']==good:
+                msg="\nDONE! Well-converged results"
+                print (msg)
+                return new_probl, results, info
+            else:
+                msg="Status = {}".format( str(info['status_msg']) ) 
+                msg += '\nTrying again with different options.'
+                print (msg)
     
     
     
@@ -728,8 +832,8 @@ if __name__=="__main__":
     # nucl = Problem(Z=20,N=20,max_iter=4000, ub=8., debug='y', basis=ShellModelBasis(), data=quickLoad("Densities/rho_HO_20_particles_coupled_basis.dat"), constr_viol=1e-4 )
     print (nucl)
     data, info = nucl.solve()
-    data = loadData(nucl.output_folder+"\data")
-    x = data['x']
+    #data = loadData(nucl.output_folder+"\data")
+    #x = data['x']
     
  
     
