@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 from Problem  import Problem, quickLoad
 from Orbitals import UncoupledHOBasis, ShellModelBasis, OrbitalSet
 from Constants import coeffSch
-from Misc import loadData, read
+from Misc import loadData, read, findPlateu
 
 
 class Solver(object):
@@ -355,40 +355,7 @@ class Solver(object):
         
   
         
-"""
-Find the intial position of a 'plateu' in an array v.
-The array is scanned seeking a sequence of points where the variation
-between elements is below a given treshhold.
-The position j of the first element that satifies these conditions is returned.
 
-Parameters
-----------
-    v: list of np.array
-    n: int
-        minimal length of a plateu
-    tol: float
-        max. diff. between two elements allowed 
-    st: int
-        starting position
-
-"""
-def findPlateu(v, n=3, tol=0.05, st=0):
-    v = np.array(v)
-    for j in range(st, v.shape[0] ):
-        flag = True
-        for k in range(0,n+1):
-            #print(j,j+k)
-            ind = np.min((v.shape[0]-1, j+k))
-            if np.abs(v[j]-v[ind]) > tol:
-                flag = False
-                break
-        if flag == True:
-            return j
-    return j
-    
-        
-        
-        
         
 
             

@@ -4,7 +4,7 @@
 import pickle  # for input/output
 from numpy import array
 import numpy as np
-from scipy import interpolate  as interp
+from scipy import interpolate as interp
 
 
 def saveData(filename, data):
@@ -36,14 +36,15 @@ def interpolate(r, f, get_der=False):
     else: 
         d1 = lambda x: interp.splev(x, tck, der=1)  
         return ff, d1
-    
-    
-    
-    
-def getCutoff(rho, cut=1e-8):
-        for rr in np.arange(0.,50.,0.1):
-            if( rho(rr) < cut ):
-                return rr - 0.1
+
+
+"""
+Compare density with a given cutoff value
+"""
+def getCutoff(rho, cut=1e-9):
+    for rr in np.arange(0.,50.,0.1):
+        if( rho(rr) < cut ):
+            return rr - 0.1
 
 
 """
@@ -73,6 +74,7 @@ def read(filename):
             lists[j] = np.array( lists[j], dtype=float )
     return lists
 
+
 """
 Check if string can be converted to float
 """
@@ -84,8 +86,45 @@ def is_float_try(stri):
         return False
 
 
-# TODO add explanation
+"""
+Check whether an array of float contains a certain value
+Parameters
+----------
+    a: list or np.array
+    floats: float
+        values to be searched
+"""
 def floatCompare(a, floats, **kwargs):
   return np.any(np.isclose(a, floats, **kwargs))
 
 
+"""
+Find the intial position of a 'plateu' in an array v.
+The array is scanned seeking a sequence of points where the variation
+between elements is below a given treshhold.
+The position j of the first element that satifies these conditions is returned.
+Parameters
+----------
+    v: list of np.array
+    n: int
+        minimal length of a plateu
+    tol: float
+        max. diff. between two elements allowed 
+    st: int
+        starting position
+"""
+def findPlateu(v, n=3, tol=0.05, st=0):
+    v = np.array(v)
+    for j in range(st, v.shape[0] ):
+        flag = True
+        for k in range(0,n+1):
+            #print(j,j+k)
+            ind = np.min((v.shape[0]-1, j+k))
+            if np.abs(v[j]-v[ind]) > tol:
+                flag = False
+                break
+        if flag == True:
+            return j
+        
+    print("No plateau with the inserted conditions has been found, returning the ten last index")
+    return -10
