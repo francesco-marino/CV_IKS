@@ -63,7 +63,20 @@ def integralFunction(x, f):
     for j in range(x.shape[0]):
         integ[j] = integrate.simps(f[:j+1], x[:j+1])
     return integ
-    
+
+
+def gaidukSpaceIntegral(r, v, drho):
+    g = 4.*np.pi * r**2 * v * drho
+    return integralFunction(r, g)
+
+"""
+def gaidukIntegral(t, r, v, drho):
+    de_dt = np.zeros(v.shape[0])
+    for j in range(v.shape[0]):
+        de_dt[j] = gaidukSpaceIntegral( r[j], v[j][0], drho[j][:])
+"""
+
+ 
     
 
 """
