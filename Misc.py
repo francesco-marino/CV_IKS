@@ -5,6 +5,7 @@ import pickle  # for input/output
 from numpy import array
 import numpy as np
 from scipy import interpolate as interp
+from scipy import integrate
 
 
 def saveData(filename, data):
@@ -45,7 +46,25 @@ def getCutoff(rho, cut=1e-9):
     for rr in np.arange(0.,50.,0.1):
         if( rho(rr) < cut ):
             return rr - 0.1
-
+        
+        
+"""
+Computes the integral function F(x)= \int_x0 ^x f(t) dt.
+Parameters
+----------
+x: np.array
+    independent variable
+f: np.array
+    values of the function
+"""
+def integralFunction(x, f):
+    assert (x.shape[0]==f.shape[0])
+    integ = np.zeros_like(x)
+    for j in range(x.shape[0]):
+        integ[j] = integrate.simps(f[:j+1], x[:j+1])
+    return integ
+    
+    
 
 """
 Read tabular file
