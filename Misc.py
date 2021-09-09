@@ -69,16 +69,23 @@ def gaidukSpaceIntegral(r, v, drho):
     g = 4.*np.pi * r**2 * v * drho
     return integralFunction(r, g)
 
-"""
+
 def gaidukIntegral(t, r, v, drho):
     de_dt = np.zeros(v.shape[0])
     for j in range(v.shape[0]):
-        de_dt[j] = gaidukSpaceIntegral( r[j], v[j][0], drho[j][:])
-"""
+        de_dt[j] = gaidukSpaceIntegral( r[j], v[j], drho[j])[-1]
+    
+    integ = np.zeros_like(de_dt)
+    for j in range(de_dt.shape[0]):
+        integ[j] = integrate.simps(de_dt[:j+1], t[:j+1])
+        
+    zero_pos = np.where(t==0)[0][0]
+    shift = integ[zero_pos]
+    integ -= shift
+    
+    return integ
 
  
-    
-
 """
 Read tabular file
 """
@@ -145,9 +152,10 @@ Parameters
     st: int
         starting position
 """
+
 def findPlateu(v, n=3, tol=0.05, st=0):
     v = np.array(v)
-    for j in range(st, v.shape[0] ):
+    for j in range(st, v.shape[0]-1 ):
         flag = True
         for k in range(0,n+1):
             #print(j,j+k)
@@ -157,6 +165,12 @@ def findPlateu(v, n=3, tol=0.05, st=0):
                 break
         if flag == True:
             return j
+    
+    # choose between the two:
         
-    print("No plateau with the inserted conditions has been found, returning the ten last index")
-    return -10
+    # print("No plateau satisfying the inserted conditions has been found, returning the ten last index")
+    # return -10
+    
+    # or
+    
+    return findPlateu(v, n=n, tol=tol*1.2, st=st)
