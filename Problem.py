@@ -9,7 +9,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 
-import ipopt
+from cyipopt import Problem as ipopt_Problem
 from findiff import FinDiff
 
 from Orbitals import ShellModelBasis,  OrbitalSet, getOrbitalSet
@@ -20,7 +20,7 @@ from EigenFunctions import HO_3D
 
 
 
-class Problem(ipopt.problem):
+class Problem(ipopt_Problem):
     """
     A class used to represent a nuclear Inverse Kohn-Sham (IKS) problem.
     
@@ -84,8 +84,10 @@ class Problem(ipopt.problem):
     
     """
     
-    def __init__(self,Z,N=0,rho=None, lb=0.1,ub=10., h=0.1, n_type="p", data=[], basis=None,\
-        max_iter=2000, rel_tol=1e-3, constr_viol=1e-3, output_folder="Output", exact_hess=True, \
+    def __init__(self,
+        Z, N=0, rho=None, 
+        lb=0.1,ub=10., h=0.1, n_type="p", data=[], basis=None,
+        max_iter=2000, rel_tol=1e-3, constr_viol=1e-3, output_folder="Output", exact_hess=True, 
         com_correction=True, debug='n'):
         
         # Basic info.
@@ -120,34 +122,8 @@ class Problem(ipopt.problem):
         self.data = data
         self.rho = rho if rho is not None else self.getRhoFromData( data[0], data[1] )
         
-        """
-        # Box
-        self.lb = lb
-        self.ub = ub
-        self.h  = h
-        self.n_points = int( (ub-lb)/h ) + 1
-        # Spatial grid [lb, lb+h, ..., ub]
-        self.grid = np.linspace(lb, ub, self.n_points)
-          
-        # Derivative operators
-        self.d_dx  = FinDiff(0, self.h, 1, acc=4)
-        self.d_d2x = FinDiff(0, self.h, 2, acc=4)
-         
-        
-        # Tabulate rho and its derivatives
-        self.tab_rho = self.rho(self.grid)
-        self.d1_rho  = self.d_dx( self.tab_rho)
-        self.d2_rho  = self.d_d2x(self.tab_rho)   
-        # Integration factor: 4 pi r^2 rho^2 
-        self.rho_r2  = 4.*np.pi * self.tab_rho * np.power(self.grid, 2)       
-        # C0,C1,C2
-        self.C0, self.C1, self.C2 = self._getCFunctions()
-        """
-        
         # Set all grid-related variables
         self.setGrid(lb, ub, h)
-        
-        
         
         # Create the output directory
         self.output_folder = "Results/"+output_folder if len(output_folder)>0 else ""
@@ -160,26 +136,22 @@ class Problem(ipopt.problem):
         
         # Output files
         # Rescaled orbitals f(r) 
-        self.f_file = self.output_folder + "/f.dat"
+        self.f_file = f"{self.output_folder}/f.dat"
         # Radial orbitals u(r)
-        self.u_file = self.output_folder + "/u.dat"
-        self.pot_file = self.output_folder + "/potential.dat"
-        self.epsilon_file  = self.output_folder + "/epsilon.dat"
-        self.eigen_file = self.output_folder + "/eigenvalues.dat"
+        self.u_file       = f"{self.output_folder}/u.dat"
+        self.pot_file     = f"{self.output_folder}/potential.dat"
+        self.epsilon_file = f"{self.output_folder}/epsilon.dat"
+        self.eigen_file   = f"{self.output_folder}/eigenvalues.dat"
         
         # Dictionary of results
         self.results  = dict()
-        self.datafile = self.output_folder + "/data"
+        self.datafile = f"{self.output_folder}/data"
         
         # Initialize ipopt
         self._setIpopt(max_iter,rel_tol,constr_viol,exact_hess)
         self.n_runs = 0
         
-        
-    
-    
-        
-        
+                
     """
     Configure the spatial mesh.
     """
@@ -222,20 +194,21 @@ class Problem(ipopt.problem):
             self.com_correction, self.debug)
     
     
-    """
-    Change the target  density 
-    
-    Parameters
-    ----------
-    rho:
-        density function (same as __init__)
-    data: 
-        data (r, rho(r) ) (same as __init__)
-    output_folder: str
-        name of the output folder inside Results
-    
-    """
     def setDensity(self, rho=None, data=[], ub=0, step=0, output_folder="Output"):
+        """
+        Change the target  density 
+        
+        Parameters
+        ----------
+        rho:
+            density function (same as __init__)
+        data: 
+            data (r, rho(r) ) (same as __init__)
+        output_folder: str
+            name of the output folder inside Results
+        
+        """
+    
         if rho is None and len(data)==0:
             raise ValueError("Error: no valid density was provided")
         else:
@@ -520,7 +493,7 @@ class Problem(ipopt.problem):
         
         
     """
-    Set ipopt parameters. Call ipopt.Problem constructor
+    Set ipopt parameters. Call ipopt_Problem constructor
     """
     def _setIpopt(self, max_iter,rel_tol,constr_viol, exact_hess=False):      
         # Options
@@ -528,7 +501,7 @@ class Problem(ipopt.problem):
         self.rel_tol = rel_tol
         self.constr_viol = constr_viol
         self.exact_hess = exact_hess
-        # Calling ipopt.problem constructor
+        # Calling ipopt_Problem constructor
         ub_x = np.ones(self.n_variables)
         lb_x = -1. * ub_x
         con = self._getConstraintsValue()
