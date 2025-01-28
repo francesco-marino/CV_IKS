@@ -601,9 +601,6 @@ class Problem(ipopt_Problem):
         self.addOption(b"hessian_approximation", b"exact") if exact_hess \
             else self.addOption(b'hessian_approximation', b'limited-memory')
             
-        #self.addOption(b'mumps_permuting_scaling', 0)
-        self.addOption(b'mumps_pivot_order', 2)
-        
         
     """
     Determine the reduced wave functions u(r) from the x array.

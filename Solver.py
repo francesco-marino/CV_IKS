@@ -223,7 +223,7 @@ class Solver(object):
             self.shiftPot(cost)
         
         # Compute int(rho*v)
-        self.int_rho_v = integrate.simps(self.problem.tab_rho*self.potential*self.grid**2, self.grid) * 4.*np.pi
+        self.int_rho_v = integrate.simpson(self.problem.tab_rho*self.potential*self.grid**2, self.grid) * 4.*np.pi
  
         
         # Write potential to file

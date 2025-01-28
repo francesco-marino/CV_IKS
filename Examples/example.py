@@ -31,9 +31,9 @@ if __name__=="__main__":
     Setting up an IKS problem.
     Using a proton density for the O16 nucleus.
     """
-    nucl = Problem(Z=20,N=20, n_type='p', h=0.1,  \
-        ub=11, basis=ShellModelBasis(), data=data, \
-        output_folder="2_agosto", com_correction=True, \
+    nucl = Problem(Z=20,N=20, n_type='p', h=0.1,  
+        ub=11, basis=ShellModelBasis(), data=data, 
+        output_folder="2_agosto", com_correction=True, 
         rel_tol=1e-8, constr_viol=1e-8, exact_hess=True)
     
     
