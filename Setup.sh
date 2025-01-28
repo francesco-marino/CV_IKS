@@ -1,15 +1,27 @@
-
+#!/bin/bash
 
 INSTALL_IPOPT=false
 CREATE_VENV=false
+
 PREPARE_VENV=true
+TEST_CVIKS=true
 
 #
 #  These variables are machine dependent
 #
 
 MOTHERDIR=/g100/home/userexternal/fmarino0
-alias LOAD_PYTHON_LIBS="module load python/3.11.7--gcc--10.2.0; module load mkl"
+
+load_python_libs()
+{
+    module load python/3.11.7--gcc--10.2.0
+    module load mkl
+}
+
+prepare_venv_func() {
+    load_python_libs
+    source ~/Ipopt_Venv/bin/activate
+}
 
 CVIKSDIR=/g100/home/userexternal/fmarino0/CV_IKS
 
@@ -18,8 +30,6 @@ CVIKSDIR=/g100/home/userexternal/fmarino0/CV_IKS
 # From now on, automatic
 export MOTHERDIR=${MOTHERDIR}
 export CVIKSDIR=${CVIKSDIR}
-export LOAD_PYTHON_LIBS=${LOAD_PYTHON_LIBS}
-
 export IPOPT_DIR=${MOTHERDIR}/Ipopt        # Choose where to install Ipopt
 export IPOPT_LIBDIR=${IPOPT_DIR}/lib
 
@@ -59,7 +69,7 @@ if [ $CREATE_VENV = true ]; then
     
     echo ""
     echo "Creating virtual environment"
-    LOAD_PYTHON_LIBS
+    load_python_libs
 
     cd $MOTHERDIR
     python3.11 -m venv Ipopt_Venv
@@ -86,8 +96,12 @@ fi
 
 # Execute as source Script_Ipopt.sh
 if [ $PREPARE_VENV = true ]; then
-    echo "Preparing virtual environment"
-    source ~/Ipopt_Venv/bin/activate
-    LOAD_PYTHON_LIBS
+    prepare_venv_func
+fi
 
+if [ $TEST_CVIKS = true ]; then
+    echo "Testing CV_IKS"
+    prepare_venv_func
+    cd "${CVIKSDIR}/Examples"
+    python3 example.py
 fi
